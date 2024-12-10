@@ -2,8 +2,39 @@
 <html>
 <head>
   <title>My Editor</title>
+  <link rel="stylesheet" href="styles.css">
 </head>
+<style>
+  nav {
+    background-color: #f0f0f0;
+    padding: 10px;
+  }
+  nav a {
+    margin-right: 20px;
+  }
+</style>
 <body>
+  <nav>
+    <a href="index.html">Home</a>
+    <a href="projects.html">Projects</a>
+  </nav>
 
+  <h1>My Editor</h1>
+
+  <textarea id="codeEditor" rows="20" cols="80"></textarea>
+
+  <button id="runButton">Run Code</button>
+  <div id="output"></div>
+
+  <script>
+    const codeEditor = document.getElementById('codeEditor');
+    const runButton = document.getElementById('runButton');
+    const outputDiv = document.getElementById('output');
+
+    runButton.addEventListener('click', () => {
+      // Execute the code here
+      outputDiv.textContent = 'Code executed!';
+    });
+  </script>
 </body>
 </html>
