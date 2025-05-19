@@ -1,5 +1,5 @@
 const express = require('express');
-const fs = require('fs').promises;
+const fs =require('fs').promises;
 const path = require('path');
 
 const app = express();
@@ -13,20 +13,20 @@ app.use(express.json());
 async function ensureProjectsBaseDirExists() {
     try {
         await fs.access(projectsBaseDir);
-        console.log(`Directory ${projectsBaseDir} already exists.`);
+        console.log(`Base projects directory '${projectsBaseDir}' already exists.`);
     } catch (error) {
         if (error.code === 'ENOENT') {
+            console.log(`Base projects directory '${projectsBaseDir}' not found. Attempting to create it...`);
             try {
                 await fs.mkdir(projectsBaseDir, { recursive: true });
-                console.log(`Directory ${projectsBaseDir} created successfully.`);
+                console.log(`Base projects directory '${projectsBaseDir}' created successfully.`);
             } catch (mkdirError) {
-                console.error(`Error creating directory ${projectsBaseDir}:`, mkdirError);
-                // Exit or handle critical error if base directory cannot be created
-                process.exit(1);
+                console.error(`CRITICAL: Failed to create projects_base directory at '${projectsBaseDir}':`, mkdirError);
+                process.exit(1); // Exit if base directory cannot be created
             }
         } else {
-            console.error(`Error accessing directory ${projectsBaseDir}:`, error);
-            process.exit(1);
+            console.error(`CRITICAL: Error accessing projects_base directory '${projectsBaseDir}':`, error);
+            process.exit(1); // Exit on other access errors
         }
     }
 }
@@ -35,17 +35,23 @@ async function ensureProjectsBaseDirExists() {
 // Route to list projects
 app.get('/api/projects', async (req, res) => {
     try {
+        console.log(`Attempting to read projects from: ${projectsBaseDir}`); // Log attempt
         const entries = await fs.readdir(projectsBaseDir, { withFileTypes: true });
         const directories = entries
             .filter(dirent => dirent.isDirectory())
             .map(dirent => dirent.name);
+        console.log(`Found projects: ${directories.join(', ') || 'None'}`); // Log found projects
         res.json(directories);
-    } catch (error) {
-        console.error('Error reading projects directory:', error);
-        if (error.code === 'ENOENT') {
-            return res.status(404).json({ message: `Projects base directory not found at ${projectsBaseDir}. Please create it.` });
+    } catch (err) { // Changed 'error' to 'err'
+        console.error(`Error reading projects directory at '${projectsBaseDir}':`, err); // General server log
+        if (err.code === 'ENOENT') {
+            console.error(`>>> Specific error: Projects base directory not found at '${projectsBaseDir}'.`);
+            return res.status(404).json({ message: `Projects base directory not found at ${projectsBaseDir}. Please ensure it is created and accessible.` });
+        } else if (err.code === 'EACCES') {
+            console.error('>>> Specific error: Permission denied when trying to read the projects directory.');
         }
-        res.status(500).json({ message: 'Failed to list projects' });
+        // For other errors or if not ENOENT but still an issue
+        res.status(500).json({ message: 'Server error reading projects directory. Check server logs for more details.' });
     }
 });
 
@@ -80,7 +86,6 @@ app.get('/api/file', async (req, res) => {
         return res.status(400).json({ message: 'Project and filename query parameters are required' });
     }
 
-    // Basic path validation (more robust sanitization is needed for production)
     if (filename.includes('..')) {
         return res.status(400).json({ message: 'Invalid filename (path traversal detected).' });
     }
@@ -94,7 +99,7 @@ app.get('/api/file', async (req, res) => {
         if (error.code === 'ENOENT') {
             return res.status(404).json({ message: `File '${filename}' not found in project '${project}'.` });
         }
-        res.status(500).json({ message: `Failed to read file '${filename}'` });
+        res.status(500).json({ message: `Failed to read file '${filename}'. Check server logs for details.` });
     }
 });
 
@@ -110,7 +115,6 @@ app.post('/api/file', async (req, res) => {
         return res.status(400).json({ message: 'Content field in request body is required' });
     }
 
-    // Basic path validation
     if (filename.includes('..')) {
         return res.status(400).json({ message: 'Invalid filename (path traversal detected).' });
     }
@@ -119,9 +123,7 @@ app.post('/api/file', async (req, res) => {
     const filePath = path.join(projectPath, filename);
 
     try {
-        // Ensure project directory exists
         await fs.mkdir(projectPath, { recursive: true });
-        // Ensure subdirectory for the file exists if filename contains path segments
         const fileDir = path.dirname(filePath);
         if (fileDir !== projectPath) {
              await fs.mkdir(fileDir, { recursive: true });
@@ -129,15 +131,27 @@ app.post('/api/file', async (req, res) => {
 
         await fs.writeFile(filePath, content, 'utf-8');
         res.json({ message: `File '${filename}' saved successfully in project '${project}'.` });
-    } catch (error) {
-        console.error(`Error writing file ${filename} in project ${project}:`, error);
-        res.status(500).json({ message: `Failed to save file '${filename}'` });
+    } catch (err) { 
+        console.error(`Error during file operation for ${filename} in project ${project}:`, err); 
+        if (err.code === 'EACCES') {
+            console.error('>>> Specific error: Permission denied. Check write permissions for projects_base directory and its subdirectories.');
+        } else if (err.code === 'ENOENT') {
+            console.error('>>> Specific error: Path not found. A segment of the path does not exist or the file could not be created at the specified path.');
+        } else if (err.code === 'EISDIR') {
+            console.error('>>> Specific error: Path is a directory. Cannot overwrite a directory with a file.');
+        }
+        res.status(500).json({ 
+            message: 'Server error during file operation. Please check server logs or contact administrator if issue persists.' 
+        });
     }
 });
 
 // Start the server
 async function startServer() {
-    await ensureProjectsBaseDirExists(); // Ensure base directory is checked/created before server starts
+    console.log("Ensuring base projects directory exists...");
+    await ensureProjectsBaseDirExists(); 
+    console.log("Base projects directory ensured."); 
+
     app.listen(port, () => {
         console.log(`Server listening on http://localhost:${port}`);
     });
