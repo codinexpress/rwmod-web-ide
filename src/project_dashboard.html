@@ -1,19 +1,20 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Project Dashboard - RW Mod IDE</title>
+  <title>Project Dashboard - RW Mod IDE (OPFS)</title>
   <link rel="stylesheet" href="css/style.css">
-  <!-- Inline styles removed -->
+  <!-- Inline styles removed, relying on style.css -->
 </head>
 <body>
   <nav>
     <a href="index.html">Home</a>
-    <a href="editor.html">Editor</a>
+    <a href="editor.html">Editor (OPFS)</a>
   </nav>
 
   <div class="container">
-    <h1>Project Dashboard</h1>
-    <div id="userMessage" class="user-message"></div> <!-- Ensured class user-message is present -->
+    <h1>Project Dashboard (Origin Private File System)</h1>
+    <p style="font-size: 0.8em; color: #666;">Projects are stored in your browser's private storage. They are not accessible by other websites or directly on your computer's file system without special tools.</p>
+    <div id="userMessage" class="user-message"></div>
     <ul id="projectList" class="project-list"></ul>
 
     <div class="create-project-controls">
@@ -28,35 +29,46 @@
     const newProjectNameInput = document.getElementById('newProjectName');
     const createProjectBtn = document.getElementById('createProjectBtn');
     const userMessageDiv = document.getElementById('userMessage');
-    const API_BASE_URL = 'http://localhost:3000/api';
+    // API_BASE_URL constant removed
 
-    function displayUserMessage(message, type = 'error') { // type can be 'success' or 'error'
+    function displayUserMessage(message, type = 'error') { 
       userMessageDiv.textContent = message;
-      // Add base class 'user-message' and type-specific class 'success' or 'error'
       userMessageDiv.className = 'user-message ' + type; 
       userMessageDiv.style.display = 'block';
       
       setTimeout(() => {
         userMessageDiv.style.display = 'none';
         userMessageDiv.textContent = '';
-        userMessageDiv.className = 'user-message'; // Reset to base class
-      }, 5000);
+        userMessageDiv.className = 'user-message'; 
+      }, 7000); // Increased timeout for OPFS messages
     }
 
-    function fetchAndDisplayProjects() {
-      projectListUl.innerHTML = ''; 
+    async function listOpfsProjects() {
+      userMessageDiv.style.display = 'none'; // Clear previous messages
+      projectListUl.innerHTML = ''; // Clear current list
 
-      fetch(`${API_BASE_URL}/projects`)
-        .then(response => {
-          if (!response.ok) { throw new Error(`HTTP error! status: ${response.status}`); }
-          return response.json();
-        })
-        .then(projects => {
-          if (projects.length === 0) {
-            projectListUl.innerHTML = '<li class="project-item">No projects found. Create one!</li>';
-            return;
+      if (!navigator.storage || !navigator.storage.getDirectory) {
+        displayUserMessage('File System Access API is not supported in this browser.', 'error');
+        console.error('File System Access API not supported.');
+        projectListUl.innerHTML = '<li class="project-item">OPFS not supported.</li>';
+        return;
+      }
+
+      try {
+        const rootDirHandle = await navigator.storage.getDirectory();
+        let projectFound = false;
+        const tempProjectList = []; // To sort before adding to DOM
+
+        for await (const entry of rootDirHandle.values()) {
+          if (entry.kind === 'directory') {
+            projectFound = true;
+            tempProjectList.push(entry.name);
           }
-          projects.forEach(projectName => {
+        }
+
+        tempProjectList.sort((a, b) => a.localeCompare(b)); // Sort project names alphabetically
+
+        tempProjectList.forEach(projectName => {
             const li = document.createElement('li');
             li.className = 'project-item'; 
             const nameSpan = document.createElement('span');
@@ -65,50 +77,69 @@
             li.appendChild(nameSpan);
             
             li.onclick = () => {
-              window.location.href = `editor.html?project=${encodeURIComponent(projectName)}`;
+              // Note: editor.html needs to be updated to use OPFS for file operations as well
+              window.location.href = `editor.html?project=${encodeURIComponent(projectName)}&storage=opfs`;
             };
             projectListUl.appendChild(li);
-          });
-        })
-        .catch(error => {
-          displayUserMessage(`Failed to load projects: ${error.message}`, 'error');
         });
+
+        if (!projectFound) {
+          projectListUl.innerHTML = '<li class="project-item">No projects found in OPFS. Create one!</li>';
+        }
+      } catch (err) {
+        console.error('Error listing OPFS projects:', err);
+        displayUserMessage(`Failed to list projects from OPFS: ${err.message}`, 'error');
+        projectListUl.innerHTML = '<li class="project-item">Error loading projects.</li>';
+      }
     }
 
-    createProjectBtn.addEventListener('click', () => {
+    createProjectBtn.addEventListener('click', async () => {
       const projectName = newProjectNameInput.value.trim();
       if (!projectName) {
         displayUserMessage('Project name cannot be empty.', 'error');
         return;
       }
+      // Basic validation for project name (OPFS has some restrictions)
+      if (projectName === '.' || projectName === '..' || projectName.includes('/') || projectName.includes('\\')) {
+        displayUserMessage('Project name is invalid. Avoid ".", "..", and slashes.', 'error');
+        return;
+      }
 
-      fetch(`${API_BASE_URL}/file?project=${encodeURIComponent(projectName)}&filename=.project_created_marker`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', },
-        body: JSON.stringify({ content: '' })
-      })
-      .then(response => {
-        if (!response.ok) {
-          return response.text().then(text => { throw new Error(`Server error: ${text || response.statusText}`); });
-        }
-        return response.json();
-      })
-      .then(data => {
-        if (data.message && data.message.toLowerCase().includes('saved')) {
-          displayUserMessage(`Project '${projectName}' created successfully!`, 'success');
-          newProjectNameInput.value = ''; 
-          fetchAndDisplayProjects(); 
+      if (!navigator.storage || !navigator.storage.getDirectory) {
+        displayUserMessage('File System Access API is not supported for project creation.', 'error');
+        return;
+      }
+
+      try {
+        const rootDirHandle = await navigator.storage.getDirectory();
+        // getDirectoryHandle with create: true will create it or get it if it exists.
+        // It throws an error if a file with the same name exists (TypeMismatchError).
+        const newProjectDirHandle = await rootDirHandle.getDirectoryHandle(projectName, { create: true });
+        
+        displayUserMessage(`Project '${projectName}' created/accessed successfully in OPFS!`, 'success');
+        newProjectNameInput.value = ''; 
+        await listOpfsProjects(); // Refresh list
+      } catch (err) {
+        console.error('Error creating OPFS project:', err);
+        if (err.name === 'TypeMismatchError') {
+             displayUserMessage(`Failed to create project '${projectName}': A file with this name may already exist, or the name is invalid.`, 'error');
+        } else if (err.name === 'NoModificationAllowedError') {
+            displayUserMessage(`Failed to create project '${projectName}': Operation not allowed, possibly due to permissions or a locked file.`, 'error');
         } else {
-          throw new Error(data.message || 'Unknown error creating project marker.');
+             displayUserMessage(`Failed to create project '${projectName}': ${err.message}`, 'error');
         }
-      })
-      .catch(error => {
-        displayUserMessage(`Failed to create project '${projectName}': ${error.message}`, 'error');
-      });
+      }
     });
 
     // Initial load
-    fetchAndDisplayProjects();
+    if (navigator.storage && navigator.storage.getDirectory) {
+        listOpfsProjects();
+    } else {
+        displayUserMessage('File System Access API (OPFS) is not supported in this browser. Project features will be limited.', 'error');
+        projectListUl.innerHTML = '<li class="project-item" style="color: red; text-align: center;">OPFS Not Supported</li>';
+        createProjectBtn.disabled = true;
+        newProjectNameInput.disabled = true;
+    }
   </script>
 </body>
 </html>

@@ -4,7 +4,13 @@
   <title>Editor - RW Mod IDE</title>
   <link rel="stylesheet" href="css/style.css">
   <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
-  <!-- Inline styles removed -->
+  <style>
+    /* Minimal styling for new buttons, assuming global styles handle others */
+    .file-actions { margin-bottom: 10px; display: flex; gap: 5px; }
+    .file-actions button { font-size: 0.8em; padding: 3px 6px; }
+    #fileList li button { margin-left: 10px; border: none; background: transparent; cursor: pointer; padding: 2px; font-size: 0.9em; }
+    #fileList li button:hover { color: red; }
+  </style>
 </head>
 <body>
   <nav>
@@ -15,10 +21,13 @@
   <div class="editor-container"> 
     <div id="fileExplorer">
       <h3>Project Files</h3>
+      <div class="file-actions">
+        <button id="newFileBtn" title="New File">📄+ New File</button>
+        <button id="newDirectoryBtn" title="New Directory">📁+ New Dir</button>
+      </div>
       <ul id="fileList"></ul>
     </div>
     <div class="editor-area">
-      <!-- Replaced textarea with this div -->
       <div id="monacoEditorContainer" style="height: 100%; width: 100%; border: 1px solid #ccc;"></div>
       <div class="editor-controls">
         <button id="saveButton">Save File</button>
@@ -31,79 +40,66 @@
   <script>
     const fileListUl = document.getElementById('fileList');
     const saveButton = document.getElementById('saveButton');
+    const newFileBtn = document.getElementById('newFileBtn');
+    const newDirectoryBtn = document.getElementById('newDirectoryBtn');
     const editorMessageDiv = document.getElementById('editorMessage');
     const currentFileDisplay = document.getElementById('currentFileDisplay');
-    const API_BASE_URL = 'http://localhost:3000/api';
+    const API_BASE_URL = 'http://localhost:3000/api'; 
 
     let currentProject = '';
-    let currentOpenFile = '';
-    let editor; // Global Monaco editor instance
+    let currentOpenFile = ''; // This will store the name of the currently open file
+    let editor; 
+    let storageType = 'backend'; 
 
     function displayEditorMessage(message, type = 'error') { 
       editorMessageDiv.textContent = message;
       editorMessageDiv.className = 'user-message ' + type; 
       editorMessageDiv.style.display = 'inline-block';
-      
       setTimeout(() => {
         editorMessageDiv.style.display = 'none';
         editorMessageDiv.textContent = '';
         editorMessageDiv.className = 'user-message'; 
-      }, 3000); 
+      }, 5000); 
     }
 
     function updateCurrentFileDisplay(filename) {
       currentOpenFile = filename;
       currentFileDisplay.textContent = `Editing: ${filename || 'None'}`;
       if (!filename && editor) { 
-         // editor.setValue(''); // Clear editor if no file is open - Handled by loadFileContent
+         editor.setValue('// Select or create a file to begin.');
          // editor.updateOptions({ readOnly: true }); 
       } else if (editor) {
          // editor.updateOptions({ readOnly: false });
       }
     }
 
-    function fetchProjectFiles(projectName) {
+    // --- Backend-based file operations (legacy) ---
+    function fetchProjectFilesBackend(projectName) {
       fileListUl.innerHTML = ''; 
       fetch(`${API_BASE_URL}/files?project=${encodeURIComponent(projectName)}`)
-        .then(response => {
-          if (!response.ok) { throw new Error(`HTTP error! ${response.status}`); }
-          return response.json();
-        })
+        .then(r => r.ok ? r.json() : r.json().then(e => Promise.reject(e)))
         .then(files => { 
           if (files.length === 0) {
-            fileListUl.innerHTML = '<li>No files in this project.</li>';
-            return;
+            fileListUl.innerHTML = '<li>No files in this project.</li>'; return;
           }
-          files.sort((a, b) => {
-            if (a.isDirectory !== b.isDirectory) {
-                return a.isDirectory ? -1 : 1;
-            }
-            return a.name.localeCompare(b.name);
-          });
-          
+          files.sort((a,b) => a.isDirectory === b.isDirectory ? a.name.localeCompare(b.name) : a.isDirectory ? -1 : 1);
           files.forEach(file => { 
             const li = document.createElement('li');
             li.textContent = file.name;
             li.className = file.isDirectory ? 'type-directory' : 'type-file';
-            
-            if (file.isDirectory) {
-              // Future: handle directory expansion
-            } else {
-              li.onclick = () => loadFileContent(projectName, file.name);
+            if (!file.isDirectory) {
+              li.onclick = () => loadFileContentBackend(projectName, file.name);
             }
             fileListUl.appendChild(li);
           });
         })
-        .catch(error => displayEditorMessage(`Failed to load project files: ${error.message}`, 'error'));
+        .catch(e => displayEditorMessage(`Failed to load project files (backend): ${e.message || 'Unknown error'}`, 'error'));
     }
 
-    function loadFileContent(projectName, fileName) {
-      if (editor) editor.setValue('// Loading...'); 
+    function loadFileContentBackend(projectName, fileName) {
+      if (editor) editor.setValue('// Loading (backend)...'); 
       fetch(`${API_BASE_URL}/file?project=${encodeURIComponent(projectName)}&filename=${encodeURIComponent(fileName)}`)
-        .then(response => {
-          if (!response.ok) { throw new Error(`HTTP error! ${response.status}`); }
-          return response.text();
-        })
+        .then(r => r.ok ? r.text() : r.text().then(e => Promise.reject(new Error(e))))
         .then(content => {
           if (editor) {
             const model = editor.getModel();
@@ -111,96 +107,272 @@
             const extension = fileName.split('.').pop().toLowerCase();
             if (extension === 'lua') language = 'lua';
             else if (extension === 'ini' || extension === 'txt') language = 'ini'; 
-            else if (extension === 'json') language = 'json';
-            else if (extension === 'html') language = 'html';
-            else if (extension === 'css') language = 'css';
-            else if (extension === 'js') language = 'javascript';
-            
-            if (model) { // Ensure model exists
-                monaco.editor.setModelLanguage(model, language);
-            }
+            if (model) monaco.editor.setModelLanguage(model, language);
             editor.setValue(content);
           }
           updateCurrentFileDisplay(fileName);
         })
-        .catch(error => {
-          displayEditorMessage(`Failed to load file '${fileName}': ${error.message}`, 'error');
+        .catch(e => {
+          displayEditorMessage(`Failed to load file '${fileName}' (backend): ${e.message || 'Unknown error'}`, 'error');
           if (editor) editor.setValue(`// Could not load ${fileName}.`); 
           updateCurrentFileDisplay(''); 
         });
     }
+    
+    // --- OPFS-based file operations ---
+    async function listOpfsProjectFiles(projectName) {
+        fileListUl.innerHTML = '';
+        if (!navigator.storage || !navigator.storage.getDirectory) {
+            displayEditorMessage('OPFS API not supported.', 'error'); return;
+        }
+        try {
+            const rootDirHandle = await navigator.storage.getDirectory();
+            const projectDirHandle = await rootDirHandle.getDirectoryHandle(projectName);
+            
+            let fileFoundInOpfs = false;
+            const opfsEntries = [];
+            for await (const entry of projectDirHandle.values()) {
+                opfsEntries.push(entry);
+                fileFoundInOpfs = true;
+            }
+            opfsEntries.sort((a,b) => a.kind === b.kind ? a.name.localeCompare(b.name) : a.kind === 'directory' ? -1 : 1);
+
+            opfsEntries.forEach(entry => {
+                const li = document.createElement('li');
+                const nameSpan = document.createElement('span');
+                nameSpan.textContent = entry.name;
+                nameSpan.style.flexGrow = '1';
+                li.appendChild(nameSpan);
+                li.className = entry.kind === 'directory' ? 'type-directory' : 'type-file';
+                li.style.display = 'flex'; 
+
+                if (entry.kind === 'file') {
+                    // Prevent li click from triggering when delete button is clicked
+                    nameSpan.onclick = () => loadOpfsFileContent(projectName, entry.name);
+                    li.style.cursor = 'pointer';
+                } else {
+                    li.style.cursor = 'default';
+                }
+                
+                const deleteBtn = document.createElement('button');
+                deleteBtn.textContent = '🗑️';
+                deleteBtn.title = `Delete ${entry.name}`;
+                deleteBtn.onclick = (e) => { 
+                    e.stopPropagation(); 
+                    deleteOpfsEntry(projectName, entry.name, entry.kind); 
+                };
+                li.appendChild(deleteBtn);
+                fileListUl.appendChild(li);
+            });
+
+            if (!fileFoundInOpfs) {
+                fileListUl.innerHTML = '<li>No files in this project. Create one!</li>';
+            }
+        } catch (err) {
+            displayEditorMessage(`Error listing OPFS files for ${projectName}: ${err.message}`, 'error');
+            console.error(err);
+        }
+    }
+
+    async function loadOpfsFileContent(projectName, fileName) {
+        if (editor) editor.setValue('// Loading (OPFS)...');
+        try {
+            const rootDirHandle = await navigator.storage.getDirectory();
+            const projectDirHandle = await rootDirHandle.getDirectoryHandle(projectName);
+            const fileHandle = await projectDirHandle.getFileHandle(fileName);
+            const file = await fileHandle.getFile();
+            const content = await file.text();
+            
+            if (editor) {
+                const model = editor.getModel();
+                let language = 'plaintext';
+                const extension = fileName.split('.').pop().toLowerCase();
+                if (extension === 'lua') language = 'lua';
+                else if (extension === 'ini' || extension === 'txt') language = 'ini';
+                if (model) monaco.editor.setModelLanguage(model, language);
+                editor.setValue(content);
+            }
+            updateCurrentFileDisplay(fileName);
+        } catch (err) {
+            displayEditorMessage(`Error loading OPFS file ${fileName}: ${err.message}`, 'error');
+            if (editor) editor.setValue(`// Could not load ${fileName} from OPFS.`);
+            updateCurrentFileDisplay('');
+            console.error(err);
+        }
+    }
+
+    async function saveOpfsFile(projectName, fileName, fileContent) {
+        if (!projectName || !fileName) {
+            displayEditorMessage('Cannot save: No project or file specified.', 'error');
+            return;
+        }
+        try {
+            const rootDirHandle = await navigator.storage.getDirectory();
+            const projectDirHandle = await rootDirHandle.getDirectoryHandle(projectName);
+            const fileHandle = await projectDirHandle.getFileHandle(fileName, { create: true });
+            const writable = await fileHandle.createWritable();
+            await writable.write(fileContent);
+            await writable.close();
+            displayEditorMessage(`File '${fileName}' saved successfully to OPFS!`, 'success');
+        } catch (err) {
+            displayEditorMessage(`Error saving OPFS file ${fileName}: ${err.message}`, 'error');
+            console.error(err);
+        }
+    }
+
+    newFileBtn.addEventListener('click', async () => {
+        if (storageType !== 'opfs' || !currentProject) {
+            displayEditorMessage('New file creation is only supported for OPFS projects currently.', 'error');
+            return;
+        }
+        const newFileName = prompt('Enter new file name (e.g., script.lua, unit.ini):');
+        if (!newFileName || newFileName.trim() === '') {
+            // displayEditorMessage('File name cannot be empty.', 'error'); // User might cancel
+            return;
+        }
+        if (newFileName.includes('/') || newFileName.includes('\\') || newFileName === '.' || newFileName === '..') {
+            displayEditorMessage('Invalid file name. Slashes and dots are not allowed.', 'error'); return;
+        }
+
+        try {
+            const rootDirHandle = await navigator.storage.getDirectory();
+            const projectDirHandle = await rootDirHandle.getDirectoryHandle(currentProject);
+            // Check if file already exists - getFileHandle without create:true will throw if not found.
+            // If it doesn't throw, file exists. If it throws with NotFoundError, then we can create.
+            try {
+                await projectDirHandle.getFileHandle(newFileName);
+                displayEditorMessage(`File '${newFileName}' already exists. Choose a different name.`, 'error');
+                return;
+            } catch (e) {
+                if (e.name !== 'NotFoundError') {
+                    throw e; // Re-throw unexpected errors
+                }
+            }
+            // If we are here, file does not exist, proceed to create
+            const newFileHandle = await projectDirHandle.getFileHandle(newFileName, { create: true });
+            displayEditorMessage(`File '${newFileName}' created.`, 'success');
+            await listOpfsProjectFiles(currentProject); // Refresh file list
+            loadOpfsFileContent(currentProject, newFileName); // Open new file
+        } catch (err) {
+            displayEditorMessage(`Error creating file '${newFileName}': ${err.message}`, 'error');
+            console.error(err);
+        }
+    });
+
+    newDirectoryBtn.addEventListener('click', async () => {
+        if (storageType !== 'opfs' || !currentProject) {
+            displayEditorMessage('New directory creation is only supported for OPFS projects currently.', 'error');
+            return;
+        }
+        const newDirName = prompt('Enter new directory name:');
+        if (!newDirName || newDirName.trim() === '') {
+            // displayEditorMessage('Directory name cannot be empty.', 'error');
+            return;
+        }
+        if (newDirName.includes('/') || newDirName.includes('\\') || newDirName === '.' || newDirName === '..') {
+            displayEditorMessage('Invalid directory name. Slashes and dots are not allowed.', 'error'); return;
+        }
+
+        try {
+            const rootDirHandle = await navigator.storage.getDirectory();
+            const projectDirHandle = await rootDirHandle.getDirectoryHandle(currentProject);
+            // Check if directory already exists
+             try {
+                await projectDirHandle.getDirectoryHandle(newDirName);
+                displayEditorMessage(`Directory '${newDirName}' already exists. Choose a different name.`, 'error');
+                return;
+            } catch (e) {
+                if (e.name !== 'NotFoundError') {
+                    throw e; 
+                }
+            }
+            const newDirHandle = await projectDirHandle.getDirectoryHandle(newDirName, { create: true });
+            displayEditorMessage(`Directory '${newDirName}' created.`, 'success');
+            await listOpfsProjectFiles(currentProject);
+        } catch (err) {
+            displayEditorMessage(`Error creating directory '${newDirName}': ${err.message}`, 'error');
+            console.error(err);
+        }
+    });
+
+    async function deleteOpfsEntry(projectName, entryName, entryKind) {
+        if (!confirm(`Are you sure you want to delete ${entryKind} '${entryName}'? This cannot be undone.`)) return;
+
+        try {
+            const rootDirHandle = await navigator.storage.getDirectory();
+            const projectDirHandle = await rootDirHandle.getDirectoryHandle(projectName);
+            await projectDirHandle.removeEntry(entryName, { recursive: entryKind === 'directory' }); 
+            
+            displayEditorMessage(`${entryKind} '${entryName}' deleted successfully.`, 'success');
+            if (entryName === currentOpenFile && entryKind === 'file') { // Only clear if the deleted entry was the open file
+                updateCurrentFileDisplay(''); 
+                if(editor) editor.setValue('// Current file was deleted.');
+            }
+            await listOpfsProjectFiles(projectName); 
+        } catch (err) {
+            displayEditorMessage(`Error deleting ${entryKind} '${entryName}': ${err.message}`, 'error');
+            console.error(err);
+        }
+    }
 
     saveButton.addEventListener('click', () => {
+      if (storageType === 'opfs') {
+          if (!currentOpenFile || !editor) {
+              displayEditorMessage('No file selected to save or editor not ready.', 'error');
+              return;
+          }
+          saveOpfsFile(currentProject, currentOpenFile, editor.getValue());
+          return;
+      }
+
       if (!currentProject || !currentOpenFile || !editor) { 
-        displayEditorMessage('No file is currently open or editor not ready.', 'error');
-        return;
+        displayEditorMessage('No file is currently open or editor not ready.', 'error'); return;
       }
       const content = editor.getValue(); 
-
       fetch(`${API_BASE_URL}/file?project=${encodeURIComponent(currentProject)}&filename=${encodeURIComponent(currentOpenFile)}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: content })
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: content })
       })
-      .then(response => {
-        if (!response.ok) {
-          return response.text().then(text => { throw new Error(`Server error: ${text || response.statusText}`); });
-        }
-        return response.json();
-      })
-      .then(data => {
-        if (data.message && data.message.toLowerCase().includes('saved')) {
-          displayEditorMessage('File saved successfully!', 'success');
-        } else {
-          throw new Error(data.message || 'Unknown error saving file.');
-        }
-      })
-      .catch(error => displayEditorMessage(`Failed to save file '${currentOpenFile}': ${error.message}`, 'error'));
+      .then(r => r.ok ? r.json() : r.json().then(e => Promise.reject(e)))
+      .then(d => d.message && d.message.toLowerCase().includes('saved') ? displayEditorMessage('File saved (backend)!', 'success') : Promise.reject(new Error(d.message || 'Unknown error')))
+      .catch(e => displayEditorMessage(`Save error (backend): ${e.message || 'Unknown error'}`, 'error'));
     });
 
     document.addEventListener('DOMContentLoaded', () => {
       const params = new URLSearchParams(window.location.search);
       currentProject = params.get('project');
+      storageType = params.get('storage') === 'opfs' ? 'opfs' : 'backend'; 
+
+      if (storageType === 'opfs' && (!navigator.storage || !navigator.storage.getDirectory)) {
+        displayEditorMessage('OPFS API not supported in this browser. Functionality will be limited.', 'error');
+        newFileBtn.disabled = true; newDirectoryBtn.disabled = true; saveButton.disabled = true;
+      } else {
+        newFileBtn.disabled = storageType !== 'opfs';
+        newDirectoryBtn.disabled = storageType !== 'opfs';
+      }
+
 
       require.config({ paths: { 'vs': 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs' }});
       require(['vs/editor/editor.main'], function() {
           editor = monaco.editor.create(document.getElementById('monacoEditorContainer'), {
-              value: [
-                  '; Sample INI file content for syntax highlighting test',
-                  '[UserSettings]',
-                  'Theme = Dark',
-                  'FontSize = 14',
-                  'ShowToolbar = true',
-                  '',
-                  '[Server.Networking]',
-                  'Host = 192.168.1.100',
-                  'Port = 8080',
-                  'TimeoutSeconds = 30 ; Connection timeout',
-                  'EnableSSL = false',
-                  '',
-                  '[FeatureFlags]',
-                  'AlphaFeatureEnabled = true ; Toggle for new alpha features',
-                  'BetaFeatureAccessList = user1,user2,admin'
-              ].join('\n'),
-              language: 'ini', // Explicitly set to INI for this test
-              theme: 'vs-dark',
-              automaticLayout: true 
+              value: '// Select a file or create one.', language: 'plaintext', theme: 'vs-dark', automaticLayout: true 
           });
           
-          window.addEventListener('resize', () => {
-              if (editor) {
-                  editor.layout();
-              }
-          });
+          window.addEventListener('resize', () => { if (editor) editor.layout(); });
           
           if (currentProject) {
-            document.title = `Editor - ${currentProject}`;
-            fetchProjectFiles(currentProject);
+            document.title = `Editor - ${currentProject} (${storageType.toUpperCase()})`;
+            if (storageType === 'opfs') {
+                if (navigator.storage && navigator.storage.getDirectory) listOpfsProjectFiles(currentProject);
+                else { displayEditorMessage('OPFS not supported.', 'error'); fileListUl.innerHTML = '<li>OPFS Not Supported.</li>'; }
+            } else { 
+                fetchProjectFilesBackend(currentProject);
+            }
             updateCurrentFileDisplay(''); 
           } else {
-            // No project loaded, editor already shows default INI content.
-            fileListUl.innerHTML = '<li>No project loaded. Displaying sample.</li>';
-            updateCurrentFileDisplay('sample.ini (default)'); // Reflect that sample INI is shown
+            displayEditorMessage('No project specified. Open from dashboard.', 'error');
+            fileListUl.innerHTML = '<li>No project loaded.</li>';
+            updateCurrentFileDisplay('');
+            if (editor) editor.setValue('// No project loaded.');
           }
       });
     });
