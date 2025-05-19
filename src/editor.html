@@ -3,6 +3,7 @@
 <head>
   <title>Editor - RW Mod IDE</title>
   <link rel="stylesheet" href="css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
   <!-- Inline styles removed -->
 </head>
 <body>
@@ -11,24 +12,24 @@
     <a href="project_dashboard.html">Projects</a>
   </nav>
 
-  <div class="editor-container"> <!-- Already using editor-container -->
+  <div class="editor-container"> 
     <div id="fileExplorer">
       <h3>Project Files</h3>
       <ul id="fileList"></ul>
     </div>
     <div class="editor-area">
-      <textarea id="codeEditor" rows="20" cols="80" placeholder="Select a file to view its content..."></textarea>
+      <!-- Replaced textarea with this div -->
+      <div id="monacoEditorContainer" style="height: 100%; width: 100%; border: 1px solid #ccc;"></div>
       <div class="editor-controls">
         <button id="saveButton">Save File</button>
         <div id="currentFileDisplay">Editing: None</div>
-        <div id="editorMessage" class="user-message"></div> <!-- Added user-message class -->
+        <div id="editorMessage" class="user-message"></div> 
       </div>
     </div>
   </div>
 
   <script>
     const fileListUl = document.getElementById('fileList');
-    const codeEditor = document.getElementById('codeEditor');
     const saveButton = document.getElementById('saveButton');
     const editorMessageDiv = document.getElementById('editorMessage');
     const currentFileDisplay = document.getElementById('currentFileDisplay');
@@ -36,26 +37,28 @@
 
     let currentProject = '';
     let currentOpenFile = '';
+    let editor; // Global Monaco editor instance
 
-    function displayEditorMessage(message, type = 'error') { // type can be 'success' or 'error'
+    function displayEditorMessage(message, type = 'error') { 
       editorMessageDiv.textContent = message;
-      // Add base class 'user-message' and type-specific class 'success' or 'error'
       editorMessageDiv.className = 'user-message ' + type; 
-      editorMessageDiv.style.display = 'inline-block'; // Changed from 'block' to 'inline-block' to fit better with global styles
+      editorMessageDiv.style.display = 'inline-block';
       
       setTimeout(() => {
         editorMessageDiv.style.display = 'none';
         editorMessageDiv.textContent = '';
-        editorMessageDiv.className = 'user-message'; // Reset to base class
-      }, 3000); // Hide after 3 seconds
+        editorMessageDiv.className = 'user-message'; 
+      }, 3000); 
     }
 
     function updateCurrentFileDisplay(filename) {
       currentOpenFile = filename;
       currentFileDisplay.textContent = `Editing: ${filename || 'None'}`;
-      if (!filename) {
-         codeEditor.value = ''; 
-         codeEditor.placeholder = 'Select a file to view its content...';
+      if (!filename && editor) { 
+         // editor.setValue(''); // Clear editor if no file is open - Handled by loadFileContent
+         // editor.updateOptions({ readOnly: true }); 
+      } else if (editor) {
+         // editor.updateOptions({ readOnly: false });
       }
     }
 
@@ -95,29 +98,44 @@
     }
 
     function loadFileContent(projectName, fileName) {
+      if (editor) editor.setValue('// Loading...'); 
       fetch(`${API_BASE_URL}/file?project=${encodeURIComponent(projectName)}&filename=${encodeURIComponent(fileName)}`)
         .then(response => {
           if (!response.ok) { throw new Error(`HTTP error! ${response.status}`); }
           return response.text();
         })
         .then(content => {
-          codeEditor.value = content;
-          codeEditor.placeholder = ''; 
+          if (editor) {
+            const model = editor.getModel();
+            let language = 'plaintext';
+            const extension = fileName.split('.').pop().toLowerCase();
+            if (extension === 'lua') language = 'lua';
+            else if (extension === 'ini' || extension === 'txt') language = 'ini'; 
+            else if (extension === 'json') language = 'json';
+            else if (extension === 'html') language = 'html';
+            else if (extension === 'css') language = 'css';
+            else if (extension === 'js') language = 'javascript';
+            
+            if (model) { // Ensure model exists
+                monaco.editor.setModelLanguage(model, language);
+            }
+            editor.setValue(content);
+          }
           updateCurrentFileDisplay(fileName);
         })
         .catch(error => {
           displayEditorMessage(`Failed to load file '${fileName}': ${error.message}`, 'error');
-          codeEditor.value = `Could not load ${fileName}.`; 
+          if (editor) editor.setValue(`// Could not load ${fileName}.`); 
           updateCurrentFileDisplay(''); 
         });
     }
 
     saveButton.addEventListener('click', () => {
-      if (!currentProject || !currentOpenFile) {
-        displayEditorMessage('No file is currently open to save.', 'error');
+      if (!currentProject || !currentOpenFile || !editor) { 
+        displayEditorMessage('No file is currently open or editor not ready.', 'error');
         return;
       }
-      const content = codeEditor.value;
+      const content = editor.getValue(); 
 
       fetch(`${API_BASE_URL}/file?project=${encodeURIComponent(currentProject)}&filename=${encodeURIComponent(currentOpenFile)}`, {
         method: 'POST',
@@ -143,15 +161,48 @@
     document.addEventListener('DOMContentLoaded', () => {
       const params = new URLSearchParams(window.location.search);
       currentProject = params.get('project');
-      if (currentProject) {
-        document.title = `Editor - ${currentProject}`;
-        fetchProjectFiles(currentProject);
-        updateCurrentFileDisplay(''); 
-      } else {
-        displayEditorMessage('No project specified. Open from dashboard.', 'error');
-        fileListUl.innerHTML = '<li>No project loaded.</li>';
-        updateCurrentFileDisplay('');
-      }
+
+      require.config({ paths: { 'vs': 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs' }});
+      require(['vs/editor/editor.main'], function() {
+          editor = monaco.editor.create(document.getElementById('monacoEditorContainer'), {
+              value: [
+                  '; Sample INI file content for syntax highlighting test',
+                  '[UserSettings]',
+                  'Theme = Dark',
+                  'FontSize = 14',
+                  'ShowToolbar = true',
+                  '',
+                  '[Server.Networking]',
+                  'Host = 192.168.1.100',
+                  'Port = 8080',
+                  'TimeoutSeconds = 30 ; Connection timeout',
+                  'EnableSSL = false',
+                  '',
+                  '[FeatureFlags]',
+                  'AlphaFeatureEnabled = true ; Toggle for new alpha features',
+                  'BetaFeatureAccessList = user1,user2,admin'
+              ].join('\n'),
+              language: 'ini', // Explicitly set to INI for this test
+              theme: 'vs-dark',
+              automaticLayout: true 
+          });
+          
+          window.addEventListener('resize', () => {
+              if (editor) {
+                  editor.layout();
+              }
+          });
+          
+          if (currentProject) {
+            document.title = `Editor - ${currentProject}`;
+            fetchProjectFiles(currentProject);
+            updateCurrentFileDisplay(''); 
+          } else {
+            // No project loaded, editor already shows default INI content.
+            fileListUl.innerHTML = '<li>No project loaded. Displaying sample.</li>';
+            updateCurrentFileDisplay('sample.ini (default)'); // Reflect that sample INI is shown
+          }
+      });
     });
   </script>
 </body>
