@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>My Projects - New</title>
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    nav { margin-bottom: 20px; }
+    nav a { margin-right: 15px; text-decoration: none; color: #007bff; }
+    nav a:hover { text-decoration: underline; }
+    #projectList { list-style: none; padding: 0; }
+    #projectList li {
+      padding: 10px;
+      border: 1px solid #ddd;
+      margin-bottom: 8px;
+      cursor: pointer;
+      background-color: #f9f9f9;
+    }
+    #projectList li:hover { background-color: #efefef; }
+    .controls { margin-top: 20px; }
+    .controls input[type="text"] { padding: 8px; margin-right: 8px; border: 1px solid #ccc; }
+    .controls button { padding: 8px 15px; background-color: #007bff; color: white; border: none; cursor: pointer; }
+    .controls button:hover { background-color: #0056b3; }
+    #errorMessage { color: red; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <nav>
+    <a href="index.html">Home</a>
+    <a href="editor.html">Editor</a>
+  </nav>
+
+  <h1>Project Dashboard</h1>
+  <ul id="projectList"></ul>
+  <div id="errorMessage" style="color: red;"></div>
+
+  <div class="controls">
+    <input type="text" id="newProjectName" placeholder="New project name...">
+    <button id="createProjectBtn">Create Project</button>
+  </div>
+
+  <script>
+    const projectListUl = document.getElementById('projectList');
+    const newProjectNameInput = document.getElementById('newProjectName');
+    const createProjectBtn = document.getElementById('createProjectBtn');
+    const errorMessageDiv = document.getElementById('errorMessage');
+    const API_BASE_URL = 'http://localhost:3000/api';
+
+    function displayError(message) {
+      errorMessageDiv.textContent = message;
+      console.error(message);
+    }
+
+    function fetchAndDisplayProjects() {
+      errorMessageDiv.textContent = ''; // Clear previous errors
+      projectListUl.innerHTML = ''; // Clear current list
+
+      fetch(`${API_BASE_URL}/projects`)
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+          return response.json();
+        })
+        .then(projects => {
+          if (projects.length === 0) {
+            projectListUl.innerHTML = '<li>No projects found. Create one!</li>';
+            return;
+          }
+          projects.forEach(projectName => {
+            const li = document.createElement('li');
+            li.textContent = projectName;
+            li.onclick = () => {
+              window.location.href = `editor.html?project=${encodeURIComponent(projectName)}`;
+            };
+            projectListUl.appendChild(li);
+          });
+        })
+        .catch(error => {
+          displayError(`Failed to load projects: ${error.message}`);
+        });
+    }
+
+    createProjectBtn.addEventListener('click', () => {
+      const projectName = newProjectNameInput.value.trim();
+      if (!projectName) {
+        displayError('Project name cannot be empty.');
+        return;
+      }
+      errorMessageDiv.textContent = ''; // Clear previous errors
+
+      fetch(`${API_BASE_URL}/file?project=${encodeURIComponent(projectName)}&filename=.project_created_marker`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ content: '' })
+      })
+      .then(response => {
+        if (!response.ok) {
+          // Try to parse the error response from the server for a better message
+          return response.text().then(text => { 
+            let specificError = `Failed to create project marker. Status: ${response.status}`;
+            try {
+                const errData = JSON.parse(text);
+                specificError = errData.message || specificError;
+            } catch(e) {
+                // If parsing fails, use the raw text if available
+                if (text) specificError = text;
+            }
+            throw new Error(specificError); 
+          });
+        }
+        return response.json();
+      })
+      .then(data => {
+        // The backend /api/file POST endpoint returns:
+        // { message: `File '${filename}' saved successfully in project '${project}'.` }
+        // Check if the response message indicates success.
+        if (data && data.message && data.message.includes('saved successfully')) {
+          newProjectNameInput.value = ''; 
+          fetchAndDisplayProjects(); 
+        } else {
+          throw new Error(data.message || 'Unknown error creating project marker.');
+        }
+      })
+      .catch(error => {
+        displayError(`Failed to create project '${projectName}': ${error.message}`);
+      });
+    });
+
+    // Initial load
+    fetchAndDisplayProjects();
+  </script>
+</body>
+</html>
