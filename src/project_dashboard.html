@@ -1,28 +1,9 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>My Projects - New</title>
+  <title>Project Dashboard - RW Mod IDE</title>
   <link rel="stylesheet" href="css/style.css">
-  <style>
-    body { font-family: Arial, sans-serif; margin: 20px; }
-    nav { margin-bottom: 20px; }
-    nav a { margin-right: 15px; text-decoration: none; color: #007bff; }
-    nav a:hover { text-decoration: underline; }
-    #projectList { list-style: none; padding: 0; }
-    #projectList li {
-      padding: 10px;
-      border: 1px solid #ddd;
-      margin-bottom: 8px;
-      cursor: pointer;
-      background-color: #f9f9f9;
-    }
-    #projectList li:hover { background-color: #efefef; }
-    .controls { margin-top: 20px; }
-    .controls input[type="text"] { padding: 8px; margin-right: 8px; border: 1px solid #ccc; }
-    .controls button { padding: 8px 15px; background-color: #007bff; color: white; border: none; cursor: pointer; }
-    .controls button:hover { background-color: #0056b3; }
-    #errorMessage { color: red; margin-top: 10px; }
-  </style>
+  <!-- Inline styles removed -->
 </head>
 <body>
   <nav>
@@ -30,46 +11,59 @@
     <a href="editor.html">Editor</a>
   </nav>
 
-  <h1>Project Dashboard</h1>
-  <ul id="projectList"></ul>
-  <div id="errorMessage" style="color: red;"></div>
+  <div class="container">
+    <h1>Project Dashboard</h1>
+    <div id="userMessage" class="user-message"></div> <!-- Ensured class user-message is present -->
+    <ul id="projectList" class="project-list"></ul>
 
-  <div class="controls">
-    <input type="text" id="newProjectName" placeholder="New project name...">
-    <button id="createProjectBtn">Create Project</button>
+    <div class="create-project-controls">
+      <h3>Create New Project</h3>
+      <input type="text" id="newProjectName" placeholder="Enter new project name...">
+      <button id="createProjectBtn">Create Project</button>
+    </div>
   </div>
 
   <script>
     const projectListUl = document.getElementById('projectList');
     const newProjectNameInput = document.getElementById('newProjectName');
     const createProjectBtn = document.getElementById('createProjectBtn');
-    const errorMessageDiv = document.getElementById('errorMessage');
+    const userMessageDiv = document.getElementById('userMessage');
     const API_BASE_URL = 'http://localhost:3000/api';
 
-    function displayError(message) {
-      errorMessageDiv.textContent = message;
-      console.error(message);
+    function displayUserMessage(message, type = 'error') { // type can be 'success' or 'error'
+      userMessageDiv.textContent = message;
+      // Add base class 'user-message' and type-specific class 'success' or 'error'
+      userMessageDiv.className = 'user-message ' + type; 
+      userMessageDiv.style.display = 'block';
+      
+      setTimeout(() => {
+        userMessageDiv.style.display = 'none';
+        userMessageDiv.textContent = '';
+        userMessageDiv.className = 'user-message'; // Reset to base class
+      }, 5000);
     }
 
     function fetchAndDisplayProjects() {
-      errorMessageDiv.textContent = ''; // Clear previous errors
-      projectListUl.innerHTML = ''; // Clear current list
+      projectListUl.innerHTML = ''; 
 
       fetch(`${API_BASE_URL}/projects`)
         .then(response => {
-          if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-          }
+          if (!response.ok) { throw new Error(`HTTP error! status: ${response.status}`); }
           return response.json();
         })
         .then(projects => {
           if (projects.length === 0) {
-            projectListUl.innerHTML = '<li>No projects found. Create one!</li>';
+            projectListUl.innerHTML = '<li class="project-item">No projects found. Create one!</li>';
             return;
           }
           projects.forEach(projectName => {
             const li = document.createElement('li');
-            li.textContent = projectName;
+            li.className = 'project-item'; 
+            const nameSpan = document.createElement('span');
+            nameSpan.className = 'project-item-name';
+            nameSpan.textContent = projectName;
+            li.appendChild(nameSpan);
+            
             li.onclick = () => {
               window.location.href = `editor.html?project=${encodeURIComponent(projectName)}`;
             };
@@ -77,47 +71,31 @@
           });
         })
         .catch(error => {
-          displayError(`Failed to load projects: ${error.message}`);
+          displayUserMessage(`Failed to load projects: ${error.message}`, 'error');
         });
     }
 
     createProjectBtn.addEventListener('click', () => {
       const projectName = newProjectNameInput.value.trim();
       if (!projectName) {
-        displayError('Project name cannot be empty.');
+        displayUserMessage('Project name cannot be empty.', 'error');
         return;
       }
-      errorMessageDiv.textContent = ''; // Clear previous errors
 
       fetch(`${API_BASE_URL}/file?project=${encodeURIComponent(projectName)}&filename=.project_created_marker`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json', },
         body: JSON.stringify({ content: '' })
       })
       .then(response => {
         if (!response.ok) {
-          // Try to parse the error response from the server for a better message
-          return response.text().then(text => { 
-            let specificError = `Failed to create project marker. Status: ${response.status}`;
-            try {
-                const errData = JSON.parse(text);
-                specificError = errData.message || specificError;
-            } catch(e) {
-                // If parsing fails, use the raw text if available
-                if (text) specificError = text;
-            }
-            throw new Error(specificError); 
-          });
+          return response.text().then(text => { throw new Error(`Server error: ${text || response.statusText}`); });
         }
         return response.json();
       })
       .then(data => {
-        // The backend /api/file POST endpoint returns:
-        // { message: `File '${filename}' saved successfully in project '${project}'.` }
-        // Check if the response message indicates success.
-        if (data && data.message && data.message.includes('saved successfully')) {
+        if (data.message && data.message.toLowerCase().includes('saved')) {
+          displayUserMessage(`Project '${projectName}' created successfully!`, 'success');
           newProjectNameInput.value = ''; 
           fetchAndDisplayProjects(); 
         } else {
@@ -125,7 +103,7 @@
         }
       })
       .catch(error => {
-        displayError(`Failed to create project '${projectName}': ${error.message}`);
+        displayUserMessage(`Failed to create project '${projectName}': ${error.message}`, 'error');
       });
     });
 

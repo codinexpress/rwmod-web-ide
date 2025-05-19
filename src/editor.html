@@ -1,28 +1,9 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>My Editor</title>
-  <link rel="stylesheet" href="css/style.css"> <!-- Assuming you want to keep this -->
-  <style>
-    body { font-family: Arial, sans-serif; margin: 0; display: flex; height: 100vh; flex-direction: column; } /* Changed to flex-direction column */
-    nav { background-color: #f0f0f0; padding: 10px; width: 100%; box-sizing: border-box; height: 40px; flex-shrink: 0; /* Prevent nav from shrinking */ }
-    nav a { margin-right: 20px; text-decoration: none; color: #007bff; }
-    nav a:hover { text-decoration: underline; }
-    .main-container { display: flex; width: 100%; flex-grow: 1; /* Allow main container to grow */ overflow: hidden; /* Prevent overall page scroll */ }
-    #fileExplorer { width: 250px; /* Increased width slightly */ border-right: 1px solid #ccc; padding: 10px; overflow-y: auto; background-color: #f9f9f9; flex-shrink: 0; /* Prevent file explorer from shrinking */ }
-    #fileExplorer h3 { margin-top: 0; font-size: 1.1em; color: #333; }
-    #fileExplorer ul { list-style: none; padding: 0; margin: 0; }
-    #fileExplorer li { padding: 6px 8px; /* Adjusted padding */ cursor: pointer; border-radius: 3px; /* Added border-radius */ margin-bottom: 2px; /* Added margin for spacing */ }
-    #fileExplorer li:hover { background-color: #e0e0e0; /* Darker hover */ }
-    #fileExplorer li.active-file { background-color: #007bff; color: white; } /* Style for active file */
-    .editor-area { flex-grow: 1; display: flex; flex-direction: column; }
-    #codeEditor { flex-grow: 1; font-family: monospace; font-size: 14px; border: none; outline: none; padding: 10px; resize: none; /* Disable manual resize */ }
-    .controls { padding: 10px; border-top: 1px solid #ccc; background-color: #f0f0f0; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; /* Prevent controls from shrinking */ }
-    .controls button { padding: 8px 15px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
-    .controls button:hover { background-color: #0056b3; }
-    #currentFileDisplay { font-size: 0.9em; color: #555; }
-    #errorMessage { color: red; margin-top: 5px; font-size: 0.9em; }
-  </style>
+  <title>Editor - RW Mod IDE</title>
+  <link rel="stylesheet" href="css/style.css">
+  <!-- Inline styles removed -->
 </head>
 <body>
   <nav>
@@ -30,18 +11,18 @@
     <a href="project_dashboard.html">Projects</a>
   </nav>
 
-  <div class="main-container">
+  <div class="editor-container"> <!-- Already using editor-container -->
     <div id="fileExplorer">
-      <h3 id="projectTitle">Project Files</h3>
+      <h3>Project Files</h3>
       <ul id="fileList"></ul>
     </div>
     <div class="editor-area">
       <textarea id="codeEditor" rows="20" cols="80" placeholder="Select a file to view its content..."></textarea>
-      <div class="controls">
+      <div class="editor-controls">
         <button id="saveButton">Save File</button>
         <div id="currentFileDisplay">Editing: None</div>
+        <div id="editorMessage" class="user-message"></div> <!-- Added user-message class -->
       </div>
-      <div id="errorMessage" style="color: red; padding: 0 10px 5px;"></div>
     </div>
   </div>
 
@@ -49,137 +30,114 @@
     const fileListUl = document.getElementById('fileList');
     const codeEditor = document.getElementById('codeEditor');
     const saveButton = document.getElementById('saveButton');
-    const errorMessageDiv = document.getElementById('errorMessage');
+    const editorMessageDiv = document.getElementById('editorMessage');
     const currentFileDisplay = document.getElementById('currentFileDisplay');
-    const projectTitleH3 = document.getElementById('projectTitle');
     const API_BASE_URL = 'http://localhost:3000/api';
 
     let currentProject = '';
     let currentOpenFile = '';
-    let activeListItem = null;
 
-    function displayError(message) {
-      errorMessageDiv.textContent = message;
-      console.error(message);
+    function displayEditorMessage(message, type = 'error') { // type can be 'success' or 'error'
+      editorMessageDiv.textContent = message;
+      // Add base class 'user-message' and type-specific class 'success' or 'error'
+      editorMessageDiv.className = 'user-message ' + type; 
+      editorMessageDiv.style.display = 'inline-block'; // Changed from 'block' to 'inline-block' to fit better with global styles
+      
+      setTimeout(() => {
+        editorMessageDiv.style.display = 'none';
+        editorMessageDiv.textContent = '';
+        editorMessageDiv.className = 'user-message'; // Reset to base class
+      }, 3000); // Hide after 3 seconds
     }
 
     function updateCurrentFileDisplay(filename) {
       currentOpenFile = filename;
       currentFileDisplay.textContent = `Editing: ${filename || 'None'}`;
-      if (activeListItem) {
-        activeListItem.classList.remove('active-file');
-      }
-      // Find and highlight the new active file in the list
-      if (filename) {
-        const items = fileListUl.getElementsByTagName('li');
-        for (let item of items) {
-          if (item.textContent === filename) {
-            item.classList.add('active-file');
-            activeListItem = item;
-            break;
-          }
-        }
-      } else {
-        activeListItem = null;
+      if (!filename) {
+         codeEditor.value = ''; 
+         codeEditor.placeholder = 'Select a file to view its content...';
       }
     }
 
     function fetchProjectFiles(projectName) {
-      errorMessageDiv.textContent = '';
-      fileListUl.innerHTML = ''; // Clear current list
-      projectTitleH3.textContent = `${projectName} - Files`;
-
+      fileListUl.innerHTML = ''; 
       fetch(`${API_BASE_URL}/files?project=${encodeURIComponent(projectName)}`)
         .then(response => {
-          if (!response.ok) { throw new Error(`HTTP error! ${response.status} - ${response.statusText}`); }
+          if (!response.ok) { throw new Error(`HTTP error! ${response.status}`); }
           return response.json();
         })
-        .then(files => {
-          // files is an array of { name: "...", isDirectory: true/false }
+        .then(files => { 
           if (files.length === 0) {
             fileListUl.innerHTML = '<li>No files in this project.</li>';
             return;
           }
-          files.sort((a, b) => { // Sort: folders first, then by name
+          files.sort((a, b) => {
             if (a.isDirectory !== b.isDirectory) {
                 return a.isDirectory ? -1 : 1;
             }
             return a.name.localeCompare(b.name);
           });
-
-          files.forEach(file => { // file is an object { name: "...", isDirectory: true/false }
+          
+          files.forEach(file => { 
             const li = document.createElement('li');
             li.textContent = file.name;
+            li.className = file.isDirectory ? 'type-directory' : 'type-file';
+            
             if (file.isDirectory) {
-                li.style.fontWeight = 'bold';
-                li.textContent += ' /'; // Indicate directory
-                // In a full implementation, clicking a directory would fetch its contents
-                // For now, directories are not clickable to load content.
-                li.style.cursor = 'default'; // Or implement directory navigation
+              // Future: handle directory expansion
             } else {
-                li.onclick = () => loadFileContent(projectName, file.name);
+              li.onclick = () => loadFileContent(projectName, file.name);
             }
             fileListUl.appendChild(li);
           });
         })
-        .catch(error => displayError(`Failed to load project files: ${error.message}`));
+        .catch(error => displayEditorMessage(`Failed to load project files: ${error.message}`, 'error'));
     }
 
     function loadFileContent(projectName, fileName) {
-      errorMessageDiv.textContent = '';
-      codeEditor.value = 'Loading...'; // Placeholder while fetching
       fetch(`${API_BASE_URL}/file?project=${encodeURIComponent(projectName)}&filename=${encodeURIComponent(fileName)}`)
         .then(response => {
-          if (!response.ok) { throw new Error(`HTTP error! ${response.status} - ${response.statusText}`); }
+          if (!response.ok) { throw new Error(`HTTP error! ${response.status}`); }
           return response.text();
         })
         .then(content => {
           codeEditor.value = content;
+          codeEditor.placeholder = ''; 
           updateCurrentFileDisplay(fileName);
         })
         .catch(error => {
-          displayError(`Failed to load file '${fileName}': ${error.message}`);
-          codeEditor.value = `Could not load ${fileName}.`;
-          updateCurrentFileDisplay('');
+          displayEditorMessage(`Failed to load file '${fileName}': ${error.message}`, 'error');
+          codeEditor.value = `Could not load ${fileName}.`; 
+          updateCurrentFileDisplay(''); 
         });
     }
 
     saveButton.addEventListener('click', () => {
       if (!currentProject || !currentOpenFile) {
-        displayError('No file is currently open to save.');
+        displayEditorMessage('No file is currently open to save.', 'error');
         return;
       }
-      errorMessageDiv.textContent = '';
       const content = codeEditor.value;
 
       fetch(`${API_BASE_URL}/file?project=${encodeURIComponent(currentProject)}&filename=${encodeURIComponent(currentOpenFile)}`, {
-        method: 'POST', // Should be POST or PUT. POST is used by current server.js for create/save
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: content })
       })
       .then(response => {
         if (!response.ok) {
-            // Try to parse error from backend
-            return response.json().then(errData => {
-                throw new Error(errData.message || `Failed to save. Server responded with ${response.status}`);
-            }).catch(() => { // If not JSON, use statusText
-                throw new Error(`Failed to save. Server responded with ${response.status} ${response.statusText}`);
-            });
+          return response.text().then(text => { throw new Error(`Server error: ${text || response.statusText}`); });
         }
         return response.json();
       })
       .then(data => {
-        // Assuming backend returns { message: 'File saved successfully' }
-        if (data && data.message && data.message.toLowerCase().includes('saved successfully')) {
-            // Using a more subtle confirmation than alert
-            const originalText = saveButton.textContent;
-            saveButton.textContent = 'Saved!';
-            setTimeout(() => { saveButton.textContent = originalText; }, 2000);
+        if (data.message && data.message.toLowerCase().includes('saved')) {
+          displayEditorMessage('File saved successfully!', 'success');
         } else {
-            throw new Error(data.message || 'Unknown error saving file.');
+          throw new Error(data.message || 'Unknown error saving file.');
         }
       })
-      .catch(error => displayError(`Failed to save file '${currentOpenFile}': ${error.message}`));
+      .catch(error => displayEditorMessage(`Failed to save file '${currentOpenFile}': ${error.message}`, 'error'));
     });
 
     document.addEventListener('DOMContentLoaded', () => {
@@ -190,13 +148,9 @@
         fetchProjectFiles(currentProject);
         updateCurrentFileDisplay(''); 
       } else {
-        displayError('No project specified. Please open a project from the dashboard.');
-        projectTitleH3.textContent = 'No Project Loaded';
+        displayEditorMessage('No project specified. Open from dashboard.', 'error');
         fileListUl.innerHTML = '<li>No project loaded.</li>';
         updateCurrentFileDisplay('');
-        codeEditor.value = 'Please select a project from the dashboard.';
-        codeEditor.disabled = true;
-        saveButton.disabled = true;
       }
     });
   </script>
