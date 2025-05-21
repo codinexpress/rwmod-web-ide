@@ -34,6 +34,18 @@ nav a:hover {
   text-decoration: underline;
 }
 
+/* Close Project Button in Nav */
+#closeProjectBtn {
+  margin-left: 15px; /* Spacing from other nav items */
+  padding: 5px 10px; /* Smaller padding for nav context */
+  font-size: 0.9em; /* Slightly smaller font */
+  background-color: #555; /* Different color to distinguish */
+}
+#closeProjectBtn:hover {
+  background-color: #777;
+}
+
+
 /* Main Container for page content */
 .container {
   padding: 20px;
@@ -228,10 +240,42 @@ textarea#codeEditor { /* Specific for the code editor */
   align-items: center;
   flex-shrink: 0;
 }
- .editor-controls #saveButton { /* More specific if needed */
-     /* padding: 8px 12px; */ /* Already covered by button styling */
- }
- #currentFileDisplay {
+.editor-controls button { /* General button styling within editor-controls */
+  padding: 5px 10px;
+  font-size: 0.9em;
+}
+.editor-controls label {
+  margin-left: 10px;
+  margin-right: 5px;
+  font-size: 0.9em;
+}
+.editor-controls select {
+  padding: 4px;
+  font-size: 0.9em;
+  border-radius: 3px;
+}
+
+/* Font Size Controls */
+#fontSizeLabel {
+  margin-left: 15px; /* More spacing before Font Size label */
+}
+#fontSizeInput {
+  width: 50px; /* Slightly wider for better click target */
+  text-align: center;
+  font-size: 0.9em;
+  padding: 4px; /* Consistent padding */
+  margin: 0 3px; /* Vertical margin if needed, horizontal for spacing */
+  border: 1px solid #ccc;
+  border-radius: 3px;
+}
+#decreaseFontSizeBtn, #increaseFontSizeBtn {
+  font-size: 0.9em; /* Match other control elements */
+  padding: 4px 8px; /* Adjust padding for smaller buttons */
+  min-width: 25px; /* Ensure buttons have a decent width */
+}
+
+
+#currentFileDisplay {
      font-size: 0.9em;
      color: #555;
  }
@@ -249,6 +293,36 @@ textarea#codeEditor { /* Specific for the code editor */
  #editorMessage.error {
      background-color: #f8d7da; color: #721c24; padding: 5px 10px; display: inline-block;
  }
+
+/* File Explorer Action Buttons (Delete, Move, Context Menu) */
+#fileList li .delete-btn, 
+#fileList li .move-btn,
+#fileList li .context-menu-btn {
+  margin-left: 8px; /* Uniform margin for action buttons in list items */
+  padding: 2px 4px; /* Small padding for compact buttons */
+  font-size: 0.9em; /* Consistent font size */
+  border: 1px solid transparent; /* For alignment, transparent border */
+}
+#fileList li .delete-btn:hover, 
+#fileList li .move-btn:hover,
+#fileList li .context-menu-btn:hover {
+  border: 1px solid #ccc; /* Subtle border on hover */
+  background-color: #f0f0f0;
+}
+#fileList li .context-menu-btn {
+  font-weight: bold; /* Already in inline style, ensure it's here if that's removed */
+  /* visibility: hidden; and li:hover visibility:visible is good from inline */
+}
+
+
+/* Move Modal Specific - .primary-action for the main action button */
+.move-modal-actions .primary-action {
+  background-color: #28a745; /* Green for primary action */
+}
+.move-modal-actions .primary-action:hover {
+  background-color: #218838; /* Darker green */
+}
+
 
 /* Responsive hint */
 @media (max-width: 768px) {

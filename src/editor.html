@@ -4,6 +4,7 @@
   <title>Editor - RW Mod IDE</title>
   <link rel="stylesheet" href="css/style.css">
   <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <style>
     .file-actions { margin-bottom: 10px; display: flex; gap: 5px; flex-wrap: wrap; }
     .file-actions button { font-size: 0.8em; padding: 3px 6px; }
@@ -19,11 +20,129 @@
     #fileList li .item-content { flex-grow: 1; display: flex; align-items: center; padding: 2px 0; }
     #fileList li .item-content:hover { background-color: #f0f0f0; } 
     #fileList li > ul > li { padding-left: 20px !important; }
+
+    .context-menu-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-weight: bold;
+      padding: 0 5px;
+      margin-left: 5px;
+      font-size: 1em;
+      line-height: 1;
+      visibility: hidden; /* Initially hidden */
+    }
+    #fileList li:hover .context-menu-btn {
+        visibility: visible; /* Show on hover of li */
+    }
+    .explorer-item-menu {
+      display: none;
+      position: absolute;
+      background-color: white;
+      border: 1px solid #ccc;
+      z-index: 100; /* Ensure it's above other items */
+      min-width: 100px;
+      box-shadow: 2px 2px 5px rgba(0,0,0,0.1);
+    }
+    .explorer-item-menu ul {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    .explorer-item-menu li {
+      padding: 8px 12px;
+      cursor: pointer;
+      font-size: 0.9em;
+    }
+    .explorer-item-menu li:hover {
+      background-color: #f0f0f0;
+    }
+
+    /* Modal Base */
+    .modal {
+      display: none; 
+      position: fixed; 
+      z-index: 1000; 
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      overflow: auto; 
+      background-color: rgba(0,0,0,0.4); 
+    }
+    .modal-content {
+      background-color: #fefefe;
+      margin: 10% auto; 
+      padding: 20px;
+      border: 1px solid #888;
+      width: 80%;
+      max-width: 500px;
+      border-radius: 5px;
+      box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2),0 6px 20px 0 rgba(0,0,0,0.19);
+    }
+    .modal-close-btn {
+      color: #aaa;
+      float: right;
+      font-size: 28px;
+      font-weight: bold;
+    }
+    .modal-close-btn:hover,
+    .modal-close-btn:focus {
+      color: black;
+      text-decoration: none;
+      cursor: pointer;
+    }
+
+    /* Move Modal Specific */
+    #moveModalTitle {
+      margin-top: 0;
+    }
+    #moveModalCurrentPath {
+      padding: 8px;
+      background-color: #eee;
+      margin-bottom: 10px;
+      border-radius: 3px;
+      font-family: monospace;
+      font-size: 0.9em;
+    }
+    #moveModalDirectoryList {
+      list-style-type: none;
+      padding: 0;
+      max-height: 200px;
+      overflow-y: auto;
+      border: 1px solid #ddd;
+      margin-bottom: 15px;
+    }
+    #moveModalDirectoryList li {
+      padding: 8px 12px;
+      cursor: pointer;
+      border-bottom: 1px solid #eee;
+    }
+    #moveModalDirectoryList li:last-child {
+      border-bottom: none;
+    }
+    #moveModalDirectoryList li:hover {
+      background-color: #f0f0f0;
+    }
+    #moveModalDirectoryList li.empty-message {
+      font-style: italic;
+      color: #777;
+      cursor: default;
+    }
+     #moveModalDirectoryList li.up-level-modal:hover {
+      background-color: #e6f7ff; /* Light blue hover for up-level */
+    }
+    .move-modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+    }
   </style>
 </head>
 <body>
   <nav>
     <a href="index.html">Home</a>
+    <button id="closeProjectBtn">Close Project</button>
   </nav>
 
   <div class="editor-container"> 
@@ -37,6 +156,7 @@
         <input type="file" id="uploadFilesInput" multiple hidden>
         <button id="uploadFolderBtn" title="Upload Folder">📁↑ Upload Folder</button>
         <input type="file" id="uploadFolderInput" webkitdirectory directory hidden>
+        <button id="exportProjectBtn" title="Export Project">📦 Export Project</button>
       </div>
       <ul id="fileList"></ul>
     </div>
@@ -53,6 +173,10 @@
           <option value="hc-black">High Contrast Dark</option>
           <option value="hc-light">High Contrast Light</option>
         </select>
+        <label for="fontSizeInput" id="fontSizeLabel">Font Size:</label>
+        <button id="decreaseFontSizeBtn">-</button>
+        <input type="number" id="fontSizeInput" value="14" min="8" max="72">
+        <button id="increaseFontSizeBtn">+</button>
       </div>
     </div>
   </div>
@@ -64,6 +188,24 @@
     <div id="imageCaption" style="text-align:center; color:#ccc; padding:10px 0; position:absolute; bottom:20px; width:100%;"></div>
   </div>
 
+  <!-- Move Item Modal -->
+  <div id="moveItemModal" class="modal">
+    <div class="modal-content">
+      <span id="moveModalCloseBtn" class="modal-close-btn">&times;</span>
+      <h4 id="moveModalTitle">Move Item</h4>
+      <div id="moveModalCurrentPath">/</div>
+      <ul id="moveModalDirectoryList">
+        <!-- Directory items will be populated here -->
+      </ul>
+      <div class="move-modal-actions">
+        <button id="moveModalNewFolderBtn">New Folder</button>
+        <button id="moveModalMoveHereBtn" class="primary-action">Move Here</button>
+        <button id="moveModalCancelBtn">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+
   <script>
     const fileListUl = document.getElementById('fileList');
     const saveButton = document.getElementById('saveButton');
@@ -73,9 +215,25 @@
     const uploadFilesInput = document.getElementById('uploadFilesInput'); 
     const uploadFolderBtn = document.getElementById('uploadFolderBtn'); 
     const uploadFolderInput = document.getElementById('uploadFolderInput'); 
+    const exportProjectBtn = document.getElementById('exportProjectBtn');
     const editorMessageDiv = document.getElementById('editorMessage');
     const currentFileDisplayDiv = document.getElementById('currentFileDisplay');
     const currentPathDisplayElement = document.getElementById('currentPathDisplay');
+    const fontSizeInput = document.getElementById('fontSizeInput');
+    const increaseFontSizeBtn = document.getElementById('increaseFontSizeBtn');
+    const decreaseFontSizeBtn = document.getElementById('decreaseFontSizeBtn');
+    
+    // Move Modal Elements
+    const moveItemModal = document.getElementById('moveItemModal');
+    const moveModalCloseBtn = document.getElementById('moveModalCloseBtn');
+    const moveModalTitleElement = document.getElementById('moveModalTitle');
+    const moveModalCurrentPathElement = document.getElementById('moveModalCurrentPath');
+    const moveModalDirectoryListElement = document.getElementById('moveModalDirectoryList');
+    const moveModalNewFolderBtn = document.getElementById('moveModalNewFolderBtn');
+    const moveModalMoveHereBtn = document.getElementById('moveModalMoveHereBtn');
+    const moveModalCancelBtn = document.getElementById('moveModalCancelBtn');
+    const closeProjectBtn = document.getElementById('closeProjectBtn');
+
     const API_BASE_URL = 'http://localhost:3000/api'; 
 
     let currentProject = '';
@@ -87,6 +245,13 @@
     let currentPathSegments = [];   
     let expandedFolders = {}; 
     const imageExtensions = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico'];
+    let currentOpenContextMenu = null; 
+
+    // Move Modal State
+    let sourceItemPathArrayToMove = [];
+    let sourceItemKindToMove = '';
+    let sourceItemNameToMove = '';
+    let moveModalCurrentBrowsingPathArray = [];
 
 
     function displayEditorMessage(message, type = 'error') { 
@@ -250,12 +415,102 @@
         moveBtn.className = 'move-btn'; // Add a class for styling if needed
         moveBtn.textContent = '➡️'; // Or use text like "Move"
         moveBtn.title = `Move ${entry.name}`;
-        moveBtn.style.marginLeft = '5px'; // Basic styling
+        // moveBtn.style.marginLeft = '5px'; // Will be handled by general button styling in li or specific class
         moveBtn.onclick = (e) => {
             e.stopPropagation();
             handleMoveEntry(projectName, entryPathArray, entry.kind);
         };
         li.appendChild(moveBtn);
+
+        // Context Menu Button (...)
+        const contextMenuBtn = document.createElement('button');
+        contextMenuBtn.textContent = '...';
+        contextMenuBtn.className = 'context-menu-btn';
+        contextMenuBtn.title = 'More options';
+        li.appendChild(contextMenuBtn);
+
+        // Context Menu Structure (hidden by default)
+        const menuDiv = document.createElement('div');
+        menuDiv.className = 'explorer-item-menu';
+        const menuUl = document.createElement('ul');
+
+        const actions = [
+            { 
+                name: 'Rename', 
+                action: async () => {
+                    const oldName = entry.name;
+                    const newName = prompt(`Enter new name for "${oldName}":`, oldName);
+
+                    if (!newName || newName.trim() === '' || newName === oldName) {
+                        if (newName === oldName) displayEditorMessage('New name is the same as the old name.', 'error');
+                        return;
+                    }
+                    if (newName.includes('/') || newName.includes('\\') || newName === '.' || newName === '..') {
+                        displayEditorMessage('Invalid name. Cannot contain slashes or be "." or "..".', 'error');
+                        return;
+                    }
+
+                    // entryPathArray is the full path to the item including its current name
+                    // currentPathSegments is the path to the directory currently listed in the explorer
+                    await renameOpfsEntry(projectName, entryPathArray, newName.trim(), entry.kind, currentPathSegments);
+                } 
+            },
+            { name: 'Move', action: () => { handleMoveEntry(projectName, entryPathArray, entry.kind); } },
+            { name: 'Delete', action: () => { deleteOpfsEntry(projectName, entryPathArray, entry.kind); } }
+        ];
+
+        actions.forEach(actionItem => {
+            const menuLi = document.createElement('li');
+            menuLi.textContent = actionItem.name;
+            menuLi.onclick = (e) => {
+                e.stopPropagation();
+                actionItem.action();
+                closeCurrentContextMenu();
+            };
+            menuUl.appendChild(menuLi);
+        });
+
+        menuDiv.appendChild(menuUl);
+        li.appendChild(menuDiv); // Append to li, it will be positioned absolutely
+
+        contextMenuBtn.onclick = (e) => {
+            e.stopPropagation(); // Prevent li click event
+            if (currentOpenContextMenu && currentOpenContextMenu !== menuDiv) {
+                currentOpenContextMenu.style.display = 'none';
+            }
+            menuDiv.style.display = menuDiv.style.display === 'block' ? 'none' : 'block';
+            if (menuDiv.style.display === 'block') {
+                currentOpenContextMenu = menuDiv;
+                // Position menu - this is a basic positioning, might need refinement
+                const rect = contextMenuBtn.getBoundingClientRect();
+                menuDiv.style.top = (rect.bottom + window.scrollY) + 'px';
+                menuDiv.style.left = (rect.left + window.scrollX - menuDiv.offsetWidth + rect.width) + 'px';
+            } else {
+                currentOpenContextMenu = null;
+            }
+        };
+        
+        // Right-click context menu for the li item
+        li.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+
+            const thisMenuDiv = li.querySelector('.explorer-item-menu');
+            if (!thisMenuDiv) return;
+
+            if (currentOpenContextMenu && currentOpenContextMenu !== thisMenuDiv) {
+                closeCurrentContextMenu(); // Close any other menu
+            }
+            
+            // Position the menu at the cursor
+            // Consider scroll offsets if #fileList or a parent is the scroll container
+            const fileExplorerRect = document.getElementById('fileExplorer').getBoundingClientRect();
+            thisMenuDiv.style.left = (e.clientX - fileExplorerRect.left) + 'px';
+            thisMenuDiv.style.top = (e.clientY - fileExplorerRect.top) + 'px'; // Adjust if #fileExplorer has padding-top
+
+            thisMenuDiv.style.display = 'block';
+            currentOpenContextMenu = thisMenuDiv;
+        });
 
         parentUlElement.appendChild(li);
 
@@ -399,127 +654,100 @@
         }
     }
 
-    async function handleMoveEntry(projectName, sourcePathArray, itemKind) {
+    async function handleMoveEntry(projectNameFromCall, sourcePathArray, itemKind) {
+        // This function will now primarily open the modal. 
+        // The actual move logic will be triggered by the modal's "Move Here" button.
         if (!rootProjectDirHandle) {
-            displayEditorMessage('OPFS not initialized.', 'error');
+            displayEditorMessage('OPFS not initialized. Cannot move.', 'error');
             return;
         }
-
-        const sourceName = sourcePathArray[sourcePathArray.length - 1];
-        const sourceFullPath = sourcePathArray.join('/');
-
-        const destinationPathStr = prompt(`Enter the full destination folder path to move '${sourceName}' into (e.g., /folderA/folderB, or empty for root).\nIt will be created if it doesn't exist:`);
-
-        if (destinationPathStr === null) { // User cancelled
+        if (!projectNameFromCall || !sourcePathArray || !itemKind) {
+            displayEditorMessage('Move parameters missing.', 'error');
+            console.error("handleMoveEntry called with invalid parameters:", projectNameFromCall, sourcePathArray, itemKind);
             return;
         }
+        openMoveModal(projectNameFromCall, sourcePathArray, itemKind);
+    }
 
-        // Normalize path: remove leading/trailing slashes, then split
-        const normalizedDestPath = destinationPathStr.trim().replace(/^\/+|\/+$/g, '');
-        const destinationDirSegments = normalizedDestPath === '' ? [] : normalizedDestPath.split('/');
-        const destinationDirFullPath = destinationDirSegments.join('/');
+    async function openMoveModal(projectName, itemPathArray, itemKind) {
+        sourceItemPathArrayToMove = [...itemPathArray];
+        sourceItemKindToMove = itemKind;
+        sourceItemNameToMove = itemPathArray[itemPathArray.length - 1];
 
-
-        // --- Basic Validations ---
-        if (itemKind === 'directory') {
-            // 1. Cannot move a directory into itself
-            if (destinationDirFullPath === sourceFullPath) {
-                displayEditorMessage('Cannot move a directory into itself.', 'error');
-                return;
-            }
-            // 2. Cannot move a directory into one of its own subdirectories
-            if (destinationDirFullPath.startsWith(sourceFullPath + '/')) {
-                displayEditorMessage('Cannot move a directory into its own subdirectory.', 'error');
-                return;
-            }
-        }
+        moveModalTitleElement.textContent = `Move '${sourceItemNameToMove}' to:`;
+        moveModalCurrentBrowsingPathArray = []; // Start browsing from root
         
-        // 3. Check if source and target (folder + item name) are identical
-        // This means moving item to the same folder it's already in, without renaming.
-        const sourceParentPath = sourcePathArray.slice(0, -1).join('/');
-        if (destinationDirFullPath === sourceParentPath) {
-            displayEditorMessage(`'${sourceName}' is already in the folder '${destinationDirFullPath || "/ (root)"}'. No move performed.`, 'error');
+        await populateMoveModalDirectoryList(moveModalCurrentBrowsingPathArray); // Initial population for root
+        
+        moveItemModal.style.display = 'block';
+    }
+
+    function closeMoveModal() {
+        moveItemModal.style.display = 'none';
+        moveModalDirectoryListElement.innerHTML = ''; // Clear list
+    }
+
+    async function populateMoveModalDirectoryList(pathArrayForModalListing) {
+        if (!rootProjectDirHandle) {
+            displayEditorMessage('OPFS not available.', 'error');
+            moveModalDirectoryListElement.innerHTML = '<li class="empty-message">OPFS not available.</li>';
             return;
         }
+        moveModalCurrentPathElement.textContent = `/${pathArrayForModalListing.join('/')}`;
+        moveModalDirectoryListElement.innerHTML = ''; // Clear previous list
 
-
+        let currentDirHandleInModal;
         try {
-            // --- Get/Create Target Directory Handle ---
-            let targetDestDirHandle;
-            if (destinationDirSegments.length === 0) { // Moving to root
-                targetDestDirHandle = rootProjectDirHandle;
+            if (pathArrayForModalListing.length === 0) {
+                currentDirHandleInModal = rootProjectDirHandle;
             } else {
-                targetDestDirHandle = await getDirectoryHandleByPath(rootProjectDirHandle, destinationDirSegments, true);
+                currentDirHandleInModal = await getDirectoryHandleByPath(rootProjectDirHandle, pathArrayForModalListing, false);
             }
 
-            // --- Check for name conflict at destination ---
-            try {
-                if (itemKind === 'file') {
-                    await targetDestDirHandle.getFileHandle(sourceName);
-                } else {
-                    await targetDestDirHandle.getDirectoryHandle(sourceName);
-                }
-                // If we reach here, it means an item with the same name exists
-                if (!confirm(`An item named '${sourceName}' already exists in '${destinationDirFullPath || "/ (root)"}'. Overwrite?`)) {
-                    displayEditorMessage('Move cancelled by user due to name conflict.', 'error');
-                    return;
-                }
-            } catch (e) {
-                if (e.name !== 'NotFoundError') { // An actual error, not just "not found"
-                    throw e;
-                }
-                // Not found is good, means no conflict.
+            // "Up one level" option
+            if (pathArrayForModalListing.length > 0) {
+                const upLi = document.createElement('li');
+                upLi.textContent = '⬆️ .. (Up one level)';
+                upLi.className = 'up-level-modal'; // For specific styling if needed
+                upLi.onclick = () => {
+                    moveModalCurrentBrowsingPathArray = pathArrayForModalListing.slice(0, -1);
+                    populateMoveModalDirectoryList(moveModalCurrentBrowsingPathArray);
+                };
+                moveModalDirectoryListElement.appendChild(upLi);
             }
 
-            // --- Perform Move ---
-            let moveSuccess = false;
-            if (itemKind === 'file') {
-                moveSuccess = await moveOpfsFile(projectName, sourcePathArray, targetDestDirHandle, sourceName);
-            } else if (itemKind === 'directory') {
-                moveSuccess = await moveOpfsDirectory(projectName, sourcePathArray, targetDestDirHandle, sourceName);
-            }
-
-            if (moveSuccess) {
-                // Update UI
-                await listOpfsProjectFiles(projectName, currentPathSegments);
-
-                // Update currentOpenFileFullPath if the moved item was the open file or its ancestor
-                if (currentOpenFileFullPath.length > 0) {
-                    const currentOpenFullPathStr = currentOpenFileFullPath.join('/');
-                    if (currentOpenFullPathStr === sourceFullPath) { // Moved file was open
-                        const newOpenFileFullPath = [...destinationDirSegments, sourceName];
-                        updateCurrentFileDisplay(newOpenFileFullPath, imageExtensions.includes(sourceName.split('.').pop().toLowerCase()));
-                    } else if (itemKind === 'directory' && currentOpenFullPathStr.startsWith(sourceFullPath + '/')) { // Open file was inside moved dir
-                        const relativePathWithinMovedDir = currentOpenFileFullPath.slice(sourcePathArray.length).join('/');
-                        const newOpenFileFullPath = [...destinationDirSegments, sourceName, ...relativePathWithinMovedDir.split('/')];
-                        updateCurrentFileDisplay(newOpenFileFullPath, imageExtensions.includes(newOpenFileFullPath[newOpenFileFullPath.length-1].split('.').pop().toLowerCase()));
-                    }
-                }
-                 // Update expanded folders if a folder is moved
-                if (itemKind === 'directory') {
-                    const oldPathKey = sourcePathArray.join('/');
-                    const newPathKey = [...destinationDirSegments, sourceName].join('/');
-                    if (expandedFolders[oldPathKey]) {
-                        delete expandedFolders[oldPathKey];
-                        expandedFolders[newPathKey] = true; // Assume user wants it expanded at new location
-                    }
-                    // Also need to update keys for any children that were expanded
-                    const prefixToRemove = oldPathKey + '/';
-                    const prefixToAdd = newPathKey + '/';
-                    for (const key in expandedFolders) {
-                        if (key.startsWith(prefixToRemove)) {
-                            const newSubKey = prefixToAdd + key.substring(prefixToRemove.length);
-                            expandedFolders[newSubKey] = expandedFolders[key];
-                            delete expandedFolders[key];
-                        }
-                    }
+            let foundDirectories = false;
+            const entries = [];
+            for await (const entry of currentDirHandleInModal.values()) {
+                if (entry.kind === 'directory') {
+                    entries.push(entry);
                 }
             }
+            entries.sort((a,b) => a.name.localeCompare(b.name)); // Sort directories alphabetically
+
+            for (const entry of entries) {
+                foundDirectories = true;
+                const li = document.createElement('li');
+                li.textContent = `📁 ${entry.name}`;
+                li.dataset.folderName = entry.name; // Store name for easier access
+                li.onclick = () => {
+                    moveModalCurrentBrowsingPathArray = [...pathArrayForModalListing, entry.name];
+                    populateMoveModalDirectoryList(moveModalCurrentBrowsingPathArray);
+                };
+                moveModalDirectoryListElement.appendChild(li);
+            }
+
+            if (!foundDirectories && pathArrayForModalListing.length === 0 && !moveModalDirectoryListElement.querySelector('.up-level-modal')) {
+                 moveModalDirectoryListElement.innerHTML = '<li class="empty-message">Project root is empty.</li>';
+            } else if (!foundDirectories && !moveModalDirectoryListElement.querySelector('.up-level-modal')) {
+                 moveModalDirectoryListElement.innerHTML = '<li class="empty-message">(This folder is empty)</li>';
+            }
+
+
         } catch (error) {
-            console.error('Error during move operation:', error);
-            displayEditorMessage(`Move failed: ${error.message}`, 'error');
-            // Refresh list even on failure, in case of partial changes or to reset view
-            await listOpfsProjectFiles(projectName, currentPathSegments);
+            console.error('Error populating move modal directory list:', error);
+            displayEditorMessage(`Error listing directories for move: ${error.message}`, 'error');
+            moveModalDirectoryListElement.innerHTML = `<li class="empty-message">Error: ${error.message}</li>`;
         }
     }
     
@@ -573,20 +801,223 @@
         } catch (err) { displayEditorMessage(`Error listing OPFS files: ${err.message}`, 'error'); }
     }
 
+    async function addFolderToZip(dirHandle, zip, basePath) {
+        for await (const entry of dirHandle.values()) {
+            const fullEntryPath = basePath + entry.name;
+            if (entry.kind === 'file') {
+                try {
+                    const fileHandle = await dirHandle.getFileHandle(entry.name);
+                    const file = await fileHandle.getFile();
+                    const fileContent = await file.arrayBuffer();
+                    zip.file(fullEntryPath, fileContent);
+                } catch (fileError) {
+                    console.error(`Error reading file ${fullEntryPath} for zipping:`, fileError);
+                    displayEditorMessage(`Error adding file ${entry.name} to zip: ${fileError.message}`, 'error');
+                    // Optionally, decide if one error should stop the whole process
+                }
+            } else if (entry.kind === 'directory') {
+                // JSZip creates folders implicitly if files are added to subpaths.
+                // However, explicit creation is fine and ensures empty folders are included.
+                zip.folder(fullEntryPath); 
+                const subDirHandle = await dirHandle.getDirectoryHandle(entry.name);
+                await addFolderToZip(subDirHandle, zip, fullEntryPath + '/');
+            }
+        }
+    }
+
+    async function processProjectExport(projectName, projectDirHandle, format) {
+        if (!projectName || !projectDirHandle) {
+            displayEditorMessage('Project details not available for export.', 'error');
+            return;
+        }
+        if (typeof JSZip === 'undefined') {
+            displayEditorMessage('JSZip library not loaded. Cannot export.', 'error');
+            return;
+        }
+
+        displayEditorMessage('Starting project export... please wait.', 'success');
+        try {
+            const zip = new JSZip();
+            await addFolderToZip(projectDirHandle, zip, ''); // Start with empty base path
+
+            const blob = await zip.generateAsync({ 
+                type: "blob",
+                compression: "DEFLATE",
+                compressionOptions: { level: 9 } 
+            });
+
+            const downloadLink = document.createElement('a');
+            downloadLink.href = URL.createObjectURL(blob);
+            const fileExtension = format === 'RWMOD' ? '.rwmod' : '.zip';
+            downloadLink.download = projectName + fileExtension;
+            
+            document.body.appendChild(downloadLink);
+            downloadLink.click();
+            document.body.removeChild(downloadLink);
+            URL.revokeObjectURL(downloadLink.href);
+
+            displayEditorMessage(`Project "${projectName}" exported successfully as ${downloadLink.download}!`, 'success');
+
+        } catch (error) {
+            console.error('Error exporting project:', error);
+            displayEditorMessage(`Error exporting project: ${error.message}`, 'error');
+        }
+    }
+
+
+    async function renameOpfsEntry(projectName, oldItemPathArray, newName, itemKind, currentExplorerPathArray) {
+        if (!rootProjectDirHandle) {
+            displayEditorMessage('OPFS not initialized.', 'error');
+            return false;
+        }
+
+        const oldName = oldItemPathArray[oldItemPathArray.length - 1];
+        const parentPathArray = oldItemPathArray.slice(0, -1);
+        let parentDirHandle;
+
+        try {
+            if (parentPathArray.length === 0) {
+                parentDirHandle = rootProjectDirHandle;
+            } else {
+                parentDirHandle = await getDirectoryHandleByPath(rootProjectDirHandle, parentPathArray, false);
+            }
+
+            // Check for name conflict
+            try {
+                if (itemKind === 'file') {
+                    await parentDirHandle.getFileHandle(newName);
+                } else { // directory
+                    await parentDirHandle.getDirectoryHandle(newName);
+                }
+                // If above does not throw, item with newName already exists
+                displayEditorMessage(`An item named "${newName}" already exists in this location.`, 'error');
+                return false;
+            } catch (e) {
+                if (e.name !== 'NotFoundError') {
+                    throw e; // Re-throw other errors
+                }
+                // NotFoundError is good, means no conflict.
+            }
+
+            if (itemKind === 'file') {
+                const sourceFileHandle = await parentDirHandle.getFileHandle(oldName);
+                const file = await sourceFileHandle.getFile();
+                const content = await file.arrayBuffer(); // Use arrayBuffer for broader compatibility
+
+                const newFileHandle = await parentDirHandle.getFileHandle(newName, { create: true });
+                const writable = await newFileHandle.createWritable();
+                await writable.write(content);
+                await writable.close();
+                await parentDirHandle.removeEntry(oldName);
+            } else { // directory
+                const oldDirHandle = await parentDirHandle.getDirectoryHandle(oldName);
+                const newDirHandle = await parentDirHandle.getDirectoryHandle(newName, { create: true });
+
+                for await (const entry of oldDirHandle.values()) {
+                    const entryOldPath = [...oldItemPathArray, entry.name]; // Full path to the child in old directory
+                    if (entry.kind === 'file') {
+                        // Pass newDirHandle as the targetDirectoryHandle for moveOpfsFile
+                        const success = await moveOpfsFile(projectName, entryOldPath, newDirHandle, entry.name);
+                        if (!success) throw new Error(`Failed to move inner file '${entry.name}' during rename.`);
+                    } else if (entry.kind === 'directory') {
+                        // Pass newDirHandle as the targetParentDirHandle for moveOpfsDirectory
+                        const success = await moveOpfsDirectory(projectName, entryOldPath, newDirHandle, entry.name);
+                        if (!success) throw new Error(`Failed to move inner directory '${entry.name}' during rename.`);
+                    }
+                }
+                await parentDirHandle.removeEntry(oldName, { recursive: true }); // Should be empty, but recursive for safety
+            }
+
+            displayEditorMessage(`${itemKind === 'file' ? 'File' : 'Directory'} "${oldName}" renamed to "${newName}" successfully.`, 'success');
+
+            // Update currentOpenFileFullPath if affected
+            const oldFullPathStr = oldItemPathArray.join('/');
+            const newFullPathArray = [...parentPathArray, newName];
+            const newFullPathStr = newFullPathArray.join('/');
+
+            if (currentOpenFileFullPath.join('/') === oldFullPathStr) {
+                updateCurrentFileDisplay(newFullPathArray, imageExtensions.includes(newName.split('.').pop().toLowerCase()));
+                 // If the renamed item is a file and was open, update its model URI in Monaco
+                if (itemKind === 'file' && editor && editor.getModel()) {
+                    const oldModel = editor.getModel();
+                    const content = oldModel.getValue();
+                    const language = oldModel.getLanguageId(); // Or determine from newName extension
+                    oldModel.dispose();
+                    const newFileUri = monaco.Uri.file(newFullPathStr);
+                    const newModel = monaco.editor.createModel(content, language, newFileUri);
+                    editor.setModel(newModel);
+                }
+            } else if (itemKind === 'directory' && currentOpenFileFullPath.join('/').startsWith(oldFullPathStr + '/')) {
+                const relativePath = currentOpenFileFullPath.slice(oldItemPathArray.length);
+                const updatedOpenFileFullPath = [...newFullPathArray, ...relativePath];
+                const openFileName = updatedOpenFileFullPath[updatedOpenFileFullPath.length-1];
+                updateCurrentFileDisplay(updatedOpenFileFullPath, imageExtensions.includes(openFileName.split('.').pop().toLowerCase()));
+            }
+
+            // Update expandedFolders
+            if (itemKind === 'directory') {
+                if (expandedFolders[oldFullPathStr]) {
+                    delete expandedFolders[oldFullPathStr];
+                    expandedFolders[newFullPathStr] = true;
+                }
+                const prefixToReplace = oldFullPathStr + '/';
+                const newPrefix = newFullPathStr + '/';
+                for (const key in expandedFolders) {
+                    if (key.startsWith(prefixToReplace)) {
+                        const newSubKey = newPrefix + key.substring(prefixToReplace.length);
+                        expandedFolders[newSubKey] = expandedFolders[key];
+                        delete expandedFolders[key];
+                    }
+                }
+            }
+            
+            // Refresh the file explorer view based on currentExplorerPathArray
+            await listOpfsProjectFiles(projectName, currentExplorerPathArray);
+            return true;
+
+        } catch (error) {
+            console.error(`Error renaming ${itemKind} '${oldName}' to '${newName}':`, error);
+            displayEditorMessage(`Error renaming: ${error.message}`, 'error');
+            // Attempt to refresh explorer to reflect any partial changes or current state
+            await listOpfsProjectFiles(projectName, currentExplorerPathArray);
+            return false;
+        }
+    }
+
     async function getHandleFromPath(projectName, itemPathArray, create = false, type = 'file') {
         if (!rootProjectDirHandle) { 
+            // This should ideally not happen if operations are guarded by rootProjectDirHandle check
             const opfsRoot = await navigator.storage.getDirectory();
-            rootProjectDirHandle = await opfsRoot.getDirectoryHandle(projectName);
+            try {
+                rootProjectDirHandle = await opfsRoot.getDirectoryHandle(projectName);
+            } catch (e) {
+                 // If project folder itself doesn't exist, this is a critical error for any operation.
+                console.error(`Project directory "${projectName}" not found or accessible.`, e);
+                displayEditorMessage(`Project "${projectName}" not found. Please initialize it first.`, 'error');
+                throw new Error(`Project directory "${projectName}" not found.`);
+            }
         }
         let currentHandle = rootProjectDirHandle;
         for (let i = 0; i < itemPathArray.length - 1 ; i++) {
             currentHandle = await currentHandle.getDirectoryHandle(itemPathArray[i], {create: false}); 
         }
         const itemName = itemPathArray[itemPathArray.length -1];
-        if (type === 'file') {
-            return await currentHandle.getFileHandle(itemName, {create});
-        } else { 
-            return await currentHandle.getDirectoryHandle(itemName, {create});
+        try {
+            if (type === 'file') {
+                return await currentHandle.getFileHandle(itemName, {create});
+            } else { 
+                return await currentHandle.getDirectoryHandle(itemName, {create});
+            }
+        } catch (error) {
+             console.error(`Error getting handle for ${type} "${itemName}" in path "${itemPathArray.join('/')}" (create: ${create}):`, error);
+             if (error.name === 'NotFoundError' && !create) {
+                displayEditorMessage(`${type === 'file' ? 'File' : 'Directory'} "${itemName}" not found at path "${parentPathArray.join('/') || '/'}"`, 'error');
+             } else if (create) {
+                displayEditorMessage(`Failed to create ${type} "${itemName}" at path "${parentPathArray.join('/') || '/'}": ${error.message}`, 'error');
+             } else {
+                displayEditorMessage(`Error accessing ${type} "${itemName}": ${error.message}`, 'error');
+             }
+             throw error; // Re-throw to be handled by caller
         }
     }
 
@@ -884,6 +1315,206 @@
       if (storageType === 'opfs' && !opfsSupported) {
         displayEditorMessage('OPFS API not supported.', 'error');
       }
+
+      // Close context menu if clicking outside
+      document.addEventListener('click', (e) => {
+        if (currentOpenContextMenu && !currentOpenContextMenu.contains(e.target) && 
+            e.target !== currentOpenContextMenu && 
+            !e.target.classList.contains('context-menu-btn')) { 
+          closeCurrentContextMenu();
+        }
+        // Close move modal if click is outside of its content
+        if (moveItemModal.style.display === 'block' && e.target === moveItemModal) {
+            closeMoveModal();
+        }
+      });
+
+      function closeCurrentContextMenu() {
+        if (currentOpenContextMenu) {
+            currentOpenContextMenu.style.display = 'none';
+            currentOpenContextMenu = null;
+        }
+      }
+      
+      // Move Modal Event Listeners
+      moveModalCloseBtn.addEventListener('click', closeMoveModal);
+      moveModalCancelBtn.addEventListener('click', closeMoveModal);
+
+      // Close Project Button Event Listener
+      if(closeProjectBtn) {
+        closeProjectBtn.addEventListener('click', () => {
+          window.location.href = 'index.html';
+        });
+      }
+
+      // Export Project Button Event Listener
+      if(exportProjectBtn) {
+        exportProjectBtn.addEventListener('click', async () => {
+            if (storageType !== 'opfs') {
+                displayEditorMessage('Export is only available for OPFS projects.', 'error');
+                return;
+            }
+            if (!currentProject || !rootProjectDirHandle) {
+                displayEditorMessage('No active OPFS project to export.', 'error');
+                return;
+            }
+
+            const formatInput = prompt("Export format: Enter 'ZIP' or 'RWMOD' (case-insensitive)", "ZIP");
+            if (formatInput === null) return; // User cancelled
+
+            const format = formatInput.trim().toUpperCase();
+            if (format !== 'ZIP' && format !== 'RWMOD') {
+                displayEditorMessage("Invalid export format. Please enter 'ZIP' or 'RWMOD'.", 'error');
+                return;
+            }
+            
+            await processProjectExport(currentProject, rootProjectDirHandle, format);
+        });
+      }
+
+      // New Folder button in Move Modal
+      moveModalNewFolderBtn.addEventListener('click', async () => {
+        const currentBrowsingHandle = moveModalCurrentBrowsingPathArray.length === 0 ? 
+            rootProjectDirHandle : 
+            await getDirectoryHandleByPath(rootProjectDirHandle, moveModalCurrentBrowsingPathArray, false);
+
+        if (!currentBrowsingHandle) {
+            displayEditorMessage('Cannot determine current path in modal to create folder.', 'error');
+            return;
+        }
+        
+        const newFolderName = prompt(`Create new folder in '/${moveModalCurrentBrowsingPathArray.join('/')}':`);
+        if (!newFolderName || newFolderName.trim() === '') return;
+        if (newFolderName.includes('/') || newFolderName.includes('\\') || newFolderName === '.' || newFolderName === '..') {
+            displayEditorMessage('Invalid folder name.', 'error'); return;
+        }
+        try {
+            await currentBrowsingHandle.getDirectoryHandle(newFolderName.trim(), { create: true });
+            displayEditorMessage(`Folder "${newFolderName.trim()}" created.`, 'success');
+            await populateMoveModalDirectoryList(moveModalCurrentBrowsingPathArray); // Refresh modal list
+        } catch (err) {
+            if (err.name === 'NoModificationAllowedError') { // Often means it already exists
+                 displayEditorMessage(`Folder "${newFolderName.trim()}" already exists or cannot be created.`, 'error');
+            } else {
+                displayEditorMessage(`Error creating folder: ${err.message}`, 'error');
+            }
+            console.error(err);
+        }
+      });
+
+      // Placeholder for Move Here button in modal
+      moveModalMoveHereBtn.addEventListener('click', async () => {
+        // This is where the actual move logic will be integrated later.
+        // For now, it will just log and close.
+        console.log("Attempting to move:", sourceItemPathArrayToMove, "to", moveModalCurrentBrowsingPathArray);
+        
+        // --- Re-integrate logic from old handleMoveEntry ---
+        const sourceName = sourceItemNameToMove; // Already stored
+        const sourceFullPath = sourceItemPathArrayToMove.join('/');
+        const destinationDirSegments = [...moveModalCurrentBrowsingPathArray];
+        const destinationDirFullPath = destinationDirSegments.join('/');
+
+        // --- Basic Validations (from old handleMoveEntry) ---
+        if (sourceItemKindToMove === 'directory') {
+            if (destinationDirFullPath === sourceFullPath) {
+                displayEditorMessage('Cannot move a directory into itself.', 'error'); return;
+            }
+            if (destinationDirFullPath.startsWith(sourceFullPath + '/')) {
+                displayEditorMessage('Cannot move a directory into its own subdirectory.', 'error'); return;
+            }
+        }
+        const sourceParentPath = sourceItemPathArrayToMove.slice(0, -1).join('/');
+        if (destinationDirFullPath === sourceParentPath) {
+            displayEditorMessage(`'${sourceName}' is already in the folder '${destinationDirFullPath || "/ (root)"}'. No move performed.`, 'error');
+            return;
+        }
+
+        try {
+            let targetDestDirHandle;
+            if (destinationDirSegments.length === 0) {
+                targetDestDirHandle = rootProjectDirHandle;
+            } else {
+                targetDestDirHandle = await getDirectoryHandleByPath(rootProjectDirHandle, destinationDirSegments, false); // Ensure target exists before moving
+            }
+
+            // Check for name conflict (modified from old handleMoveEntry)
+            try {
+                if (sourceItemKindToMove === 'file') {
+                    await targetDestDirHandle.getFileHandle(sourceName);
+                } else {
+                    await targetDestDirHandle.getDirectoryHandle(sourceName);
+                }
+                if (!confirm(`An item named '${sourceName}' already exists in '/${destinationDirFullPath}'. Overwrite?`)) {
+                    displayEditorMessage('Move cancelled by user due to name conflict.', 'error'); return;
+                }
+                // If confirmed, need to delete existing item before move. This is complex.
+                // For now, let's assume moveOpfsFile/Directory will handle overwrite if destination exists,
+                // OR we prevent overwrite by default. The current moveOpfsFile/Directory try to create,
+                // which might fail if item exists. They don't explicitly overwrite.
+                // Simplification: For now, let's prevent overwrite. The user should delete first if they want to "overwrite" by moving.
+                // The `moveOpfsFile/Directory` create new and delete old. If target exists, creation of new might fail or behave unexpectedly.
+                // The original `handleMoveEntry` had a confirm for overwrite, but it didn't implement the actual overwrite.
+                // Let's stick to "fail if target exists" for now, which is default for getFileHandle/getDirectoryHandle without create:true for target.
+                 displayEditorMessage(`An item named '${sourceName}' already exists in the destination. Move operation aborted.`, 'error');
+                 return;
+
+            } catch (e) {
+                if (e.name !== 'NotFoundError') { throw e; }
+                // NotFoundError is good, means no conflict.
+            }
+
+            let moveSuccess = false;
+            if (sourceItemKindToMove === 'file') {
+                moveSuccess = await moveOpfsFile(currentProject, sourceItemPathArrayToMove, targetDestDirHandle, sourceName);
+            } else if (sourceItemKindToMove === 'directory') {
+                moveSuccess = await moveOpfsDirectory(currentProject, sourceItemPathArrayToMove, targetDestDirHandle, sourceName);
+            }
+
+            if (moveSuccess) {
+                // Update UI (main explorer)
+                await listOpfsProjectFiles(currentProject, currentPathSegments); // Refresh based on main explorer's current path
+
+                // Update currentOpenFileFullPath
+                if (currentOpenFileFullPath.length > 0) {
+                    const currentOpenFullPathStr = currentOpenFileFullPath.join('/');
+                    if (currentOpenFullPathStr === sourceFullPath) {
+                        const newOpenFileFullPath = [...destinationDirSegments, sourceName];
+                        updateCurrentFileDisplay(newOpenFileFullPath, imageExtensions.includes(sourceName.split('.').pop().toLowerCase()));
+                    } else if (sourceItemKindToMove === 'directory' && currentOpenFullPathStr.startsWith(sourceFullPath + '/')) {
+                        const relativePathWithinMovedDir = currentOpenFileFullPath.slice(sourceItemPathArrayToMove.length).join('/');
+                        const newOpenFileFullPath = [...destinationDirSegments, sourceName, ...relativePathWithinMovedDir.split('/')];
+                        updateCurrentFileDisplay(newOpenFileFullPath, imageExtensions.includes(newOpenFileFullPath[newOpenFileFullPath.length-1].split('.').pop().toLowerCase()));
+                    }
+                }
+                // Update expandedFolders
+                if (sourceItemKindToMove === 'directory') {
+                    const oldPathKey = sourceItemPathArrayToMove.join('/');
+                    const newPathKey = [...destinationDirSegments, sourceName].join('/');
+                    if (expandedFolders[oldPathKey]) {
+                        delete expandedFolders[oldPathKey];
+                        expandedFolders[newPathKey] = true; 
+                    }
+                    const prefixToRemove = oldPathKey + '/';
+                    const prefixToAdd = newPathKey + '/';
+                    for (const key in expandedFolders) {
+                        if (key.startsWith(prefixToRemove)) {
+                            const newSubKey = prefixToAdd + key.substring(prefixToRemove.length);
+                            expandedFolders[newSubKey] = expandedFolders[key];
+                            delete expandedFolders[key];
+                        }
+                    }
+                }
+                displayEditorMessage(`'${sourceName}' moved successfully to '/${destinationDirFullPath || "(root)"}'.`, 'success');
+            }
+        } catch (error) {
+            console.error('Error during move operation from modal:', error);
+            displayEditorMessage(`Move failed: ${error.message}`, 'error');
+            await listOpfsProjectFiles(currentProject, currentPathSegments); // Refresh on error
+        }
+        closeMoveModal();
+      });
+      
+
       newFileBtn.disabled = storageType !== 'opfs' || !opfsSupported;
       newDirectoryBtn.disabled = storageType !== 'opfs' || !opfsSupported;
       uploadFilesBtn.disabled = storageType !== 'opfs' || !opfsSupported; 
@@ -892,9 +1523,17 @@
       require.config({ paths: { 'vs': 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs' }});
       require(['vs/editor/editor.main'], async function() { 
           const savedTheme = localStorage.getItem('monacoTheme') || 'vs-dark';
+          const savedFontSize = parseInt(localStorage.getItem('editorFontSize'), 10) || 14;
+          
           editor = monaco.editor.create(document.getElementById('monacoEditorContainer'), {
-              value: '// Select a file or create one.', language: 'plaintext', theme: savedTheme, automaticLayout: true 
+              value: '// Select a file or create one.', 
+              language: 'plaintext', 
+              theme: savedTheme, 
+              automaticLayout: true,
+              fontSize: savedFontSize 
           });
+          fontSizeInput.value = savedFontSize;
+
           window.addEventListener('resize', () => { if (editor) editor.layout(); });
 
           if (themeSelector) {
@@ -905,6 +1544,37 @@
               localStorage.setItem('monacoTheme', newTheme);
             });
           }
+
+          function updateEditorFontSize(newSize) {
+            const size = parseInt(newSize, 10);
+            if (isNaN(size) || size < 8 || size > 72) {
+              displayEditorMessage('Font size must be between 8 and 72.', 'error');
+              // Optionally reset to a valid value or the previous value
+              fontSizeInput.value = editor.getOption(monaco.editor.EditorOption.fontSize);
+              return;
+            }
+            if (editor) {
+              editor.updateOptions({ fontSize: size });
+            }
+            fontSizeInput.value = size;
+            localStorage.setItem('editorFontSize', size);
+          }
+
+          fontSizeInput.addEventListener('input', () => {
+            updateEditorFontSize(fontSizeInput.value);
+          });
+
+          increaseFontSizeBtn.addEventListener('click', () => {
+            let currentSize = parseInt(fontSizeInput.value, 10);
+            if (isNaN(currentSize)) currentSize = 14; // Default if input is somehow not a number
+            updateEditorFontSize(Math.min(72, currentSize + 1));
+          });
+
+          decreaseFontSizeBtn.addEventListener('click', () => {
+            let currentSize = parseInt(fontSizeInput.value, 10);
+            if (isNaN(currentSize)) currentSize = 14; // Default if input is somehow not a number
+            updateEditorFontSize(Math.max(8, currentSize - 1));
+          });
           
           if (currentProject) {
             document.title = `Editor - ${currentProject} (${storageType.toUpperCase()})`;
