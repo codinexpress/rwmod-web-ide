@@ -4,22 +4,6 @@
   <title>Editor - RW Mod IDE</title>
   <link rel="stylesheet" href="css/style.css">
   <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
-  <style>
-    .file-actions { margin-bottom: 10px; display: flex; gap: 5px; flex-wrap: wrap; }
-    .file-actions button { font-size: 0.8em; padding: 3px 6px; }
-    #fileList li button.delete-btn { margin-left: 10px; border: none; background: transparent; cursor: pointer; padding: 0; font-size: 0.9em; }
-    #fileList li button.delete-btn:hover { color: red; }
-    .file-icon { margin-right: 6px; display: inline-block; width: 20px; text-align: center; }
-    #currentPathDisplay { margin-bottom: 8px; padding: 4px; background-color: #eee; font-size: 0.9em; border-radius: 3px; }
-    #fileList .up-level { cursor: pointer; font-weight: bold; color: #007bff; }
-    #fileList .up-level:hover { background-color: #e0e0e0; }
-    .folder-toggle { cursor: pointer; margin-right: 4px; width: 12px; display: inline-block; user-select:none;}
-    #fileList ul { padding-left: 0; list-style-type: none;} 
-    #fileList li { display: flex; align-items: center; }
-    #fileList li .item-content { flex-grow: 1; display: flex; align-items: center; padding: 2px 0; }
-    #fileList li .item-content:hover { background-color: #f0f0f0; } 
-    #fileList li > ul > li { padding-left: 20px !important; }
-  </style>
 </head>
 <body>
   <nav>
@@ -32,11 +16,11 @@
       <h3>Project Files</h3>
       <div id="currentPathDisplay">Root</div>
       <div class="file-actions">
-        <button id="newFileBtn" title="New File">📄+ New File</button>
-        <button id="newDirectoryBtn" title="New Directory">📁+ New Dir</button>
-        <button id="uploadFilesBtn" title="Upload File(s)">☁️↑ Upload Files</button>
+        <button id="newFileBtn" title="New File" aria-label="Create New File">📄+ New File</button>
+        <button id="newDirectoryBtn" title="New Directory" aria-label="Create New Directory">📁+ New Dir</button>
+        <button id="uploadFilesBtn" title="Upload File(s)" aria-label="Upload Files">☁️↑ Upload Files</button>
         <input type="file" id="uploadFilesInput" multiple hidden>
-        <button id="uploadFolderBtn" title="Upload Folder">📁↑ Upload Folder</button>
+        <button id="uploadFolderBtn" title="Upload Folder" aria-label="Upload Folder">📁↑ Upload Folder</button>
         <input type="file" id="uploadFolderInput" webkitdirectory directory hidden>
       </div>
       <ul id="fileList"></ul>
@@ -58,9 +42,9 @@
     <div id="imageCaption" style="text-align:center; color:#ccc; padding:10px 0; position:absolute; bottom:20px; width:100%;"></div>
   </div>
 
-  <script>
-    const fileListUl = document.getElementById('fileList');
-    const saveButton = document.getElementById('saveButton');
+  <script src="js/editor.js" defer></script>
+</body>
+</html>
     const newFileBtn = document.getElementById('newFileBtn');
     const newDirectoryBtn = document.getElementById('newDirectoryBtn');
     const uploadFilesBtn = document.getElementById('uploadFilesBtn'); 
@@ -661,7 +645,3 @@
             if (editor) editor.setValue('// No project loaded.');
           }
       });
-    });
-  </script>
-</body>
-</html>

@@ -261,3 +261,19 @@ textarea#codeEditor { /* Specific for the code editor */
   }
   /* Add more responsive adjustments as needed */
 }
+
+/* Styles from editor.html */
+.file-actions { margin-bottom: 10px; display: flex; gap: 5px; flex-wrap: wrap; }
+.file-actions button { font-size: 0.8em; padding: 3px 6px; }
+#fileList li button.delete-btn { margin-left: 10px; border: none; background: transparent; cursor: pointer; padding: 0; font-size: 0.9em; }
+#fileList li button.delete-btn:hover { color: red; }
+.file-icon { margin-right: 6px; display: inline-block; width: 20px; text-align: center; }
+#currentPathDisplay { margin-bottom: 8px; padding: 4px; background-color: #eee; font-size: 0.9em; border-radius: 3px; }
+#fileList .up-level { cursor: pointer; font-weight: bold; color: #007bff; }
+#fileList .up-level:hover { background-color: #e0e0e0; }
+.folder-toggle { cursor: pointer; margin-right: 4px; width: 12px; display: inline-block; user-select:none;}
+#fileList ul { padding-left: 0; list-style-type: none;} 
+#fileList li { display: flex; align-items: center; }
+#fileList li .item-content { flex-grow: 1; display: flex; align-items: center; padding: 2px 0; }
+#fileList li .item-content:hover { background-color: #f0f0f0; } 
+#fileList li > ul > li { padding-left: 20px !important; }
