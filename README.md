@@ -1,2 +1,2 @@
 # rwmod-web-ide
-a rusted warfare mod ide webapp
+A fully client-side Rusted Warfare mod IDE webapp using the File System Access API (OPFS).
