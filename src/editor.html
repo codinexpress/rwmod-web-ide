@@ -693,6 +693,10 @@
             moveModalDirectoryListElement.innerHTML = '<li class="empty-message">OPFS not available.</li>';
             return;
         }
+        // Ensure buttons are enabled by default when populating
+        moveModalMoveHereBtn.disabled = false;
+        moveModalNewFolderBtn.disabled = false;
+
         moveModalCurrentPathElement.textContent = `/${pathArrayForModalListing.join('/')}`;
         moveModalDirectoryListElement.innerHTML = ''; // Clear previous list
 
@@ -748,6 +752,9 @@
             console.error('Error populating move modal directory list:', error);
             displayEditorMessage(`Error listing directories for move: ${error.message}`, 'error');
             moveModalDirectoryListElement.innerHTML = `<li class="empty-message">Error: ${error.message}</li>`;
+            // Disable buttons if there's an error loading the directory list
+            moveModalMoveHereBtn.disabled = true;
+            moveModalNewFolderBtn.disabled = true;
         }
     }
     
@@ -971,15 +978,15 @@
                 }
             }
             
-            // Refresh the file explorer view based on currentExplorerPathArray
-            await listOpfsProjectFiles(projectName, currentExplorerPathArray);
+            // Refresh the file explorer view based on parentPathArray
+            await listOpfsProjectFiles(projectName, parentPathArray);
             return true;
 
         } catch (error) {
             console.error(`Error renaming ${itemKind} '${oldName}' to '${newName}':`, error);
             displayEditorMessage(`Error renaming: ${error.message}`, 'error');
             // Attempt to refresh explorer to reflect any partial changes or current state
-            await listOpfsProjectFiles(projectName, currentExplorerPathArray);
+            await listOpfsProjectFiles(projectName, parentPathArray); // Also use parentPathArray here for consistency on error
             return false;
         }
     }
@@ -999,9 +1006,18 @@
         }
         let currentHandle = rootProjectDirHandle;
         for (let i = 0; i < itemPathArray.length - 1 ; i++) {
-            currentHandle = await currentHandle.getDirectoryHandle(itemPathArray[i], {create: false}); 
+            try {
+                currentHandle = await currentHandle.getDirectoryHandle(itemPathArray[i], {create: false}); 
+            } catch (loopError) {
+                const currentSegment = itemPathArray[i];
+                const pathProcessedSoFar = itemPathArray.slice(0, i).join('/');
+                console.error(`Error getting directory handle for segment '${currentSegment}' in path '${pathProcessedSoFar}':`, loopError);
+                displayEditorMessage(`Error accessing path: Directory '${currentSegment}' not found in '/${pathProcessedSoFar || "(root)"}'.`, 'error');
+                throw loopError; // Re-throw to be handled by the caller or main catch
+            }
         }
         const itemName = itemPathArray[itemPathArray.length -1];
+        const parentPathDisplay = itemPathArray.slice(0, -1).join('/') || '/';
         try {
             if (type === 'file') {
                 return await currentHandle.getFileHandle(itemName, {create});
@@ -1011,11 +1027,11 @@
         } catch (error) {
              console.error(`Error getting handle for ${type} "${itemName}" in path "${itemPathArray.join('/')}" (create: ${create}):`, error);
              if (error.name === 'NotFoundError' && !create) {
-                displayEditorMessage(`${type === 'file' ? 'File' : 'Directory'} "${itemName}" not found at path "${parentPathArray.join('/') || '/'}"`, 'error');
+                displayEditorMessage(`${type === 'file' ? 'File' : 'Directory'} "${itemName}" not found at path "${parentPathDisplay}"`, 'error');
              } else if (create) {
-                displayEditorMessage(`Failed to create ${type} "${itemName}" at path "${parentPathArray.join('/') || '/'}": ${error.message}`, 'error');
+                displayEditorMessage(`Failed to create ${type} "${itemName}" at path "${parentPathDisplay}": ${error.message}`, 'error');
              } else {
-                displayEditorMessage(`Error accessing ${type} "${itemName}": ${error.message}`, 'error');
+                displayEditorMessage(`Error accessing ${type} "${itemName}" at path "${parentPathDisplay}": ${error.message}`, 'error');
              }
              throw error; // Re-throw to be handled by caller
         }
@@ -1196,7 +1212,7 @@
                 try {
                     await currentDirectoryHandle.getFileHandle(fileName);
                     if (!confirm(`File "${fileName}" already exists in this directory. Overwrite?`)) {
-                        displayEditorMessage(`Skipped uploading "${fileName}".`, 'error'); 
+                        displayEditorMessage(`Skipped uploading "${fileName}".`, 'info'); 
                         continue; 
                     }
                 } catch (e) { if (e.name !== 'NotFoundError') throw e; }
@@ -1454,9 +1470,40 @@
                 // Simplification: For now, let's prevent overwrite. The user should delete first if they want to "overwrite" by moving.
                 // The `moveOpfsFile/Directory` create new and delete old. If target exists, creation of new might fail or behave unexpectedly.
                 // The original `handleMoveEntry` had a confirm for overwrite, but it didn't implement the actual overwrite.
-                // Let's stick to "fail if target exists" for now, which is default for getFileHandle/getDirectoryHandle without create:true for target.
-                 displayEditorMessage(`An item named '${sourceName}' already exists in the destination. Move operation aborted.`, 'error');
-                 return;
+                // --- Overwrite Logic Implementation START ---
+                try {
+                    // Attempt to delete the existing item
+                    let isExistingItemDirectory = false;
+                    try {
+                        await targetDestDirHandle.getDirectoryHandle(sourceName);
+                        isExistingItemDirectory = true; // If no error, it's a directory
+                    } catch (typeError) {
+                        if (typeError.name === 'TypeMismatchError') {
+                            isExistingItemDirectory = false; // It's a file
+                        } else if (typeError.name === 'NotFoundError') {
+                            // This case should ideally not be reached if the outer try caught the existence.
+                            // But if it does, it means it doesn't exist, so no need to delete.
+                        } else {
+                            throw typeError; // Re-throw other unexpected errors
+                        }
+                    }
+                    console.log(`Attempting to delete existing ${isExistingItemDirectory ? 'directory' : 'file'}: ${sourceName}`);
+                    await targetDestDirHandle.removeEntry(sourceName, { recursive: isExistingItemDirectory });
+                    displayEditorMessage(`Successfully deleted existing '${sourceName}' for overwrite.`, 'success');
+                } catch (deleteError) {
+                    console.error(`Error deleting existing item '${sourceName}' for overwrite:`, deleteError);
+                    displayEditorMessage(`Could not delete existing item '${sourceName}' to overwrite: ${deleteError.message}. Move aborted.`, 'error');
+                    return; // Abort move if deletion fails
+                }
+                // If deletion was successful, proceed with the move.
+                // The lines that previously aborted the operation after confirm are now removed.
+                // --- Overwrite Logic Implementation END ---
+            } else { // User did not confirm overwrite
+                displayEditorMessage('Move cancelled by user due to name conflict.', 'error');
+                return;
+            }
+            // If we reach here, it means either no conflict, or conflict was resolved by deletion.
+            // The original `displayEditorMessage(...); return;` after confirm used to be here.
 
             } catch (e) {
                 if (e.name !== 'NotFoundError') { throw e; }
