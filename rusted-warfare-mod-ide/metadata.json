@@ -1,0 +1,5 @@
+{
+  "name": "Rusted Warfare Mod IDE",
+  "description": "A browser-based Integrated Development Environment for creating and editing Rusted Warfare game mods. It utilizes the File System Access API to allow users to open, edit, and manage mod files directly from their local filesystem.",
+  "requestFramePermissions": []
+}
