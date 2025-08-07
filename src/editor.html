@@ -1470,37 +1470,6 @@
                 // Simplification: For now, let's prevent overwrite. The user should delete first if they want to "overwrite" by moving.
                 // The `moveOpfsFile/Directory` create new and delete old. If target exists, creation of new might fail or behave unexpectedly.
                 // The original `handleMoveEntry` had a confirm for overwrite, but it didn't implement the actual overwrite.
-                // --- Overwrite Logic Implementation START ---
-                try {
-                    // Attempt to delete the existing item
-                    let isExistingItemDirectory = false;
-                    try {
-                        await targetDestDirHandle.getDirectoryHandle(sourceName);
-                        isExistingItemDirectory = true; // If no error, it's a directory
-                    } catch (typeError) {
-                        if (typeError.name === 'TypeMismatchError') {
-                            isExistingItemDirectory = false; // It's a file
-                        } else if (typeError.name === 'NotFoundError') {
-                            // This case should ideally not be reached if the outer try caught the existence.
-                            // But if it does, it means it doesn't exist, so no need to delete.
-                        } else {
-                            throw typeError; // Re-throw other unexpected errors
-                        }
-                    }
-                    console.log(`Attempting to delete existing ${isExistingItemDirectory ? 'directory' : 'file'}: ${sourceName}`);
-                    await targetDestDirHandle.removeEntry(sourceName, { recursive: isExistingItemDirectory });
-                    displayEditorMessage(`Successfully deleted existing '${sourceName}' for overwrite.`, 'success');
-                } catch (deleteError) {
-                    console.error(`Error deleting existing item '${sourceName}' for overwrite:`, deleteError);
-                    displayEditorMessage(`Could not delete existing item '${sourceName}' to overwrite: ${deleteError.message}. Move aborted.`, 'error');
-                    return; // Abort move if deletion fails
-                }
-                // If deletion was successful, proceed with the move.
-                // The lines that previously aborted the operation after confirm are now removed.
-                // --- Overwrite Logic Implementation END ---
-            } else { // User did not confirm overwrite
-                displayEditorMessage('Move cancelled by user due to name conflict.', 'error');
-                return;
             }
             // If we reach here, it means either no conflict, or conflict was resolved by deletion.
             // The original `displayEditorMessage(...); return;` after confirm used to be here.
