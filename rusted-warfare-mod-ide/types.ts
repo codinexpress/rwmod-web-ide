@@ -23,4 +23,5 @@ export interface ClipboardItem {
   name: string;
   operation: 'copy' | 'cut';
   isFolder: boolean;
+  sourceParentHandle: FileSystemDirectoryHandle;
 }
