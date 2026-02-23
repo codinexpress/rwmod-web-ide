@@ -4,7 +4,8 @@
   "description": "a rusted warfare mod ide webapp",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "npm install --prefix rusted-warfare-mod-ide && npm run build --prefix rusted-warfare-mod-ide"
   },
   "repository": {
     "type": "git",
