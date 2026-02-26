@@ -196,13 +196,26 @@ const FileManagerPage: React.FC<FileManagerPageProps> = ({
     setIsLoading(true);
     try {
       for (const file of files) {
-        const fileHandle = await currentDirectoryHandle.getFileHandle(file.name, { create: true });
-        const writable = await fileHandle.createWritable();
-        await writable.write(file);
-        await writable.close();
+        let shouldUpload = true;
+        try {
+          await currentDirectoryHandle.getFileHandle(file.name);
+          // File exists
+          if (!window.confirm(`File "${file.name}" already exists. Do you want to overwrite it?`)) {
+            shouldUpload = false;
+          }
+        } catch (e) {
+          // File does not exist, proceed
+        }
+
+        if (shouldUpload) {
+          const fileHandle = await currentDirectoryHandle.getFileHandle(file.name, { create: true });
+          const writable = await fileHandle.createWritable();
+          await writable.write(file);
+          await writable.close();
+        }
       }
       await loadEntries();
-      alert(`${files.length} file(s) uploaded successfully.`);
+      alert(`${files.length} file(s) processed.`);
     } catch (error) {
       console.error('Error uploading files:', error);
       alert('Failed to upload files. See console for details.');
@@ -213,12 +226,24 @@ const FileManagerPage: React.FC<FileManagerPageProps> = ({
   };
 
   const handleCopy = (entry: FileSystemEntry) => {
-    setClipboardItem({ handle: entry.handle, name: entry.name, operation: 'copy', isFolder: entry.kind === 'directory' });
+    setClipboardItem({
+      handle: entry.handle,
+      name: entry.name,
+      operation: 'copy',
+      isFolder: entry.kind === 'directory',
+      sourceParentHandle: currentDirectoryHandle
+    });
     alert(`${entry.name} copied to clipboard.`);
   };
 
   const handleCut = (entry: FileSystemEntry) => {
-    setClipboardItem({ handle: entry.handle, name: entry.name, operation: 'cut', isFolder: entry.kind === 'directory' });
+    setClipboardItem({
+      handle: entry.handle,
+      name: entry.name,
+      operation: 'cut',
+      isFolder: entry.kind === 'directory',
+      sourceParentHandle: currentDirectoryHandle
+    });
      alert(`${entry.name} cut to clipboard. It will be moved on paste.`);
   };
   
@@ -263,7 +288,7 @@ const FileManagerPage: React.FC<FileManagerPageProps> = ({
     }
     setIsLoading(true);
     try {
-      const { handle, name, operation, isFolder } = clipboardItem;
+      const { handle, name, operation, isFolder, sourceParentHandle } = clipboardItem;
 
       let targetName = name;
       let nameExists = false;
@@ -287,12 +312,12 @@ const FileManagerPage: React.FC<FileManagerPageProps> = ({
         const sourceDirHandle = handle as FileSystemDirectoryHandle;
         await copyRecursively(sourceDirHandle, currentDirectoryHandle, targetName);
         if (operation === 'cut') {
-            // To delete original folder, we need its parent. This is tricky as clipboardItem.handle
-            // doesn't store its original path easily without more complex state management.
-            // For now, prompt user to manually delete. A more robust solution would involve
-            // storing original path with clipboard item or resolving parent.
-            // This implementation assumes we cannot easily get the parent of `handle` without its original full path context.
-            alert(`Folder ${name} pasted as ${targetName}. If this was a 'cut' operation, please delete the original folder manually.`);
+          try {
+             await sourceParentHandle.removeEntry(name, { recursive: true });
+          } catch (e) {
+             console.error("Error deleting source folder after cut:", e);
+             alert(`Folder pasted as ${targetName}, but failed to delete original folder. Please delete it manually.`);
+          }
         }
 
       } else { // File
@@ -304,7 +329,12 @@ const FileManagerPage: React.FC<FileManagerPageProps> = ({
         await writable.close();
 
         if (operation === 'cut') {
-             alert(`File ${name} pasted as ${targetName}. If this was a 'cut' operation, please delete the original file manually.`);
+          try {
+            await sourceParentHandle.removeEntry(name);
+          } catch (e) {
+            console.error("Error deleting source file after cut:", e);
+            alert(`File pasted as ${targetName}, but failed to delete original file. Please delete it manually.`);
+          }
         }
       }
       

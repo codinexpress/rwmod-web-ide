@@ -27,7 +27,8 @@ const isImageFile = (filename: string): boolean => {
   return imageExtensions.includes(ext);
 };
 
-async function addDirectoryToZip(dirHandle: FileSystemDirectoryHandle, zipFolder: JSZip): Promise<void> {
+async function addDirectoryToZip(dirHandle: FileSystemDirectoryHandle, zipFolder: JSZip | null): Promise<void> {
+  if (!zipFolder) return;
   try {
     // Check permission
     if ((await dirHandle.queryPermission({ mode: 'read' })) !== 'granted') {
@@ -214,6 +215,7 @@ const App: React.FC = () => {
           fileName={editingFile.name}
           onClose={handleCloseEditor}
           setIsLoading={setIsLoading}
+          downloadFile={downloadFile}
         />
       );
     case AppView.IMAGE_VIEWER:
@@ -224,6 +226,7 @@ const App: React.FC = () => {
           fileName={editingFile.name}
           onClose={handleCloseEditor}
           setIsLoading={setIsLoading}
+          downloadFile={downloadFile}
         />
       );
     default:

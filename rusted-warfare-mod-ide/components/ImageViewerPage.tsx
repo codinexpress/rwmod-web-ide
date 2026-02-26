@@ -1,16 +1,17 @@
 
 import React, { useState, useEffect } from 'react';
 import { Button } from './common/Button';
-import { ArrowLeftIcon } from './common/Icons';
+import { ArrowLeftIcon, DownloadIcon } from './common/Icons';
 
 interface ImageViewerPageProps {
   fileHandle: FileSystemFileHandle;
   fileName: string;
   onClose: () => void;
   setIsLoading: (loading: boolean) => void;
+  downloadFile: (fileHandle: FileSystemFileHandle, fileName: string) => void;
 }
 
-const ImageViewerPage: React.FC<ImageViewerPageProps> = ({ fileHandle, fileName, onClose, setIsLoading }) => {
+const ImageViewerPage: React.FC<ImageViewerPageProps> = ({ fileHandle, fileName, onClose, setIsLoading, downloadFile }) => {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -56,6 +57,11 @@ const ImageViewerPage: React.FC<ImageViewerPageProps> = ({ fileHandle, fileName,
             <h2 className="text-lg font-semibold text-sky-400 truncate" title={fileName}>
                 Viewing: {fileName}
             </h2>
+        </div>
+        <div>
+          <Button onClick={() => downloadFile(fileHandle, fileName)} variant="secondary" size="sm" title="Download">
+              <DownloadIcon className="w-5 h-5" /> <span className="hidden sm:inline ml-1">Download</span>
+          </Button>
         </div>
       </header>
       <main className="flex-grow flex items-center justify-center p-4 overflow-auto">

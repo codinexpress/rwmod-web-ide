@@ -2,13 +2,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Editor, { Monaco } from '@monaco-editor/react';
 import { Button } from './common/Button';
-import { SaveIcon, ArrowLeftIcon } from './common/Icons';
+import { SaveIcon, ArrowLeftIcon, DownloadIcon } from './common/Icons';
 
 interface TextEditorPageProps {
   fileHandle: FileSystemFileHandle;
   fileName: string;
   onClose: () => void;
   setIsLoading: (loading: boolean) => void;
+  downloadFile: (fileHandle: FileSystemFileHandle, fileName: string) => void;
 }
 
 const getLanguageForFile = (fileName: string): string | undefined => {
@@ -41,7 +42,7 @@ const getLanguageForFile = (fileName: string): string | undefined => {
   return map[extension] || 'plaintext';
 };
 
-const TextEditorPage: React.FC<TextEditorPageProps> = ({ fileHandle, fileName, onClose, setIsLoading }) => {
+const TextEditorPage: React.FC<TextEditorPageProps> = ({ fileHandle, fileName, onClose, setIsLoading, downloadFile }) => {
   const [content, setContent] = useState<string>('');
   const [initialContent, setInitialContent] = useState<string>('');
   const [isDirty, setIsDirty] = useState<boolean>(false);
@@ -110,9 +111,14 @@ const TextEditorPage: React.FC<TextEditorPageProps> = ({ fileHandle, fileName, o
             Editing: {fileName} {isDirty ? '*' : ''}
           </h2>
         </div>
-        <Button onClick={handleSave} variant="primary" size="sm" disabled={!isDirty}>
-          <SaveIcon className="w-5 h-5 mr-1" /> Save
-        </Button>
+        <div className="flex space-x-2">
+          <Button onClick={() => downloadFile(fileHandle, fileName)} variant="secondary" size="sm" title="Download">
+            <DownloadIcon className="w-5 h-5" /> <span className="hidden sm:inline ml-1">Download</span>
+          </Button>
+          <Button onClick={handleSave} variant="primary" size="sm" disabled={!isDirty}>
+            <SaveIcon className="w-5 h-5 mr-1" /> Save
+          </Button>
+        </div>
       </header>
       <main className="flex-grow monaco-editor-container bg-slate-800">
         <Editor
